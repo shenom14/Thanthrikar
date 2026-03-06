@@ -1,54 +1,58 @@
 from typing import Dict, Any
+from langchain_groq import ChatGroq
+from langchain_core.prompts import PromptTemplate
+from pydantic import BaseModel, Field
+from langchain_core.output_parsers import PydanticOutputParser
+from config.logger import setup_logger
+from config.settings import settings
+
+logger = setup_logger(__name__)
+
+class FactCheckResult(BaseModel):
+    is_correct: bool = Field(description="True if the candidate's statement is technically accurate, False otherwise.")
+    explanation: str = Field(description="A brief, polite explanation of the correct technical fact to help the interviewer.")
 
 class FactCheckerAgent:
     """
     The FactCheckerAgent identifies and verifies technical statements made by the candidate.
-    It does not rely on the resume; instead, it relies on general LLM knowledge or external docs.
+    It does not rely on the resume; instead, it relies on general LLM knowledge.
     """
     
-    def __init__(self, llm_model: str = "gpt-4o"):
-        """
-        Initialize the fact-checking agent.
+    def __init__(self, llm_model: str = settings.FACT_CHECKER_MODEL) -> None:
+        logger.info(f"Initializing FactCheckerAgent with model: {llm_model}")
+        self.llm = ChatGroq(model_name=llm_model, temperature=0.0)
+        self.parser = PydanticOutputParser(pydantic_object=FactCheckResult)
         
-        Args:
-            llm_model (str): Identifier for the LLM.
-        """
-        # TODO: Set up an LLM chain with a system prompt instructing the model to act as a
-        # strict technical examiner determining the objective truth of a statement.
-        self.llm_model = llm_model
+        self.prompt = PromptTemplate(
+            template="""You are a senior staff engineer fact-checking technical assertions made by a candidate in an interview.
+            
+Candidate's Statement:
+"{statement}"
 
-    def verify_technical_statement(self, statement: str) -> Dict[str, Any]:
+Determine if this statement is fundamentally correct. If they are slightly off on trivia but conceptually right, lean towards correct. 
+If they state something objectively wrong (e.g. 'Python lists are immutable'), mark it incorrect and provide the correct understanding.
+
+{format_instructions}""",
+            input_variables=["statement"],
+            partial_variables={"format_instructions": self.parser.get_format_instructions()}
+        )
+        self.chain = self.prompt | self.llm | self.parser
+
+    async def verify_technical_statement(self, statement: str) -> Dict[str, Any]:
         """
         Check the correctness of a technical point made during an interview.
-        
-        Args:
-            statement (str): A technical claim extracted by the planner.
-            
-        Returns:
-            Dict[str, Any]: Results containing:
-                - statement (str)
-                - is_correct (bool)
-                - explanation (str): e.g., "Python lists are mutable objects."
         """
-        # TODO:
-        # 1. Prompt the LLM to analyze the statement.
-        # 2. Return structured JSON output for `is_correct` and a concise explanation to offer the interviewer.
-        
-        print(f"[FactCheckerAgent] Evaluating statement: '{statement}'")
-        
-        # Simulate fact-check logic
-        is_correct = False
-        explanation = "Python lists are mutable objects, not immutable."
-        
-        if "immutable" in statement.lower() and "python lists" in statement.lower():
+        logger.info(f"Evaluating technical statement: '{statement}'")
+        try:
+            result = await self.chain.ainvoke({"statement": statement})
+            res_dict = result.dict()
+            res_dict["statement"] = statement
+            logger.debug(f"Fact check result: {res_dict['is_correct']}")
+            return res_dict
+        except Exception as e:
+            logger.error(f"Error evaluating fact: {e}")
             return {
                 "statement": statement,
-                "is_correct": is_correct,
-                "explanation": explanation
+                "is_correct": None,
+                "explanation": "Failed to evaluate fact."
             }
-            
-        return {
-            "statement": statement,
-            "is_correct": True,
-            "explanation": "Statement appears technically sound."
-        }

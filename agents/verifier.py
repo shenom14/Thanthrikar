@@ -1,4 +1,17 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
+from langchain_groq import ChatGroq
+from langchain_core.prompts import PromptTemplate
+from pydantic import BaseModel, Field
+from langchain_core.output_parsers import PydanticOutputParser
+from config.logger import setup_logger
+from config.settings import settings
+
+logger = setup_logger(__name__)
+
+class VerificationResult(BaseModel):
+    is_verified: bool = Field(description="True if the resume evidence clearly supports the claim, False if it contradicts or exaggerates it.")
+    explanation: str = Field(description="A concise explanation of why the claim is verified or not, based solely on the provided evidence.")
+    confidence: int = Field(description="Confidence level in the assessment from 0 to 100.")
 
 class ResumeVerifierAgent:
     """
@@ -6,46 +19,55 @@ class ResumeVerifierAgent:
     against the retrieved evidence chunks from the RAG database.
     """
     
-    def __init__(self, llm_model: str = "gpt-4o"):
-        """
-        Initialize the verification agent.
+    def __init__(self, llm_model: str = settings.VERIFIER_MODEL) -> None:
+        logger.info(f"Initializing ResumeVerifierAgent with model: {llm_model}")
+        self.llm = ChatGroq(model_name=llm_model, temperature=0.0)
+        self.parser = PydanticOutputParser(pydantic_object=VerificationResult)
         
-        Args:
-            llm_model (str): Name of the underlying language model used for comparison.
-        """
-        # TODO: Initialize LLM and construct a chain / prompt template specifically
-        # designed to evaluate if Evidence supports the Claim.
-        self.llm_model = llm_model
+        self.prompt = PromptTemplate(
+            template="""You are a strict technical recruiter verifying a candidate's spoken interview claim against their resume.
+            
+Candidate's spoken claim:
+"{claim}"
 
-    def verify_against_evidence(self, claim: str, evidence: list[Dict[str, Any]]) -> Dict[str, Any]:
+Resume Evidence Retrieved:
+{evidence_text}
+
+Analyze if the resume evidence supports the claim. Be highly critical of exaggerated metrics or expanded responsibilities not present in the resume.
+If the evidence is empty or entirely irrelevant, the claim cannot be verified.
+
+{format_instructions}""",
+            input_variables=["claim", "evidence_text"],
+            partial_variables={"format_instructions": self.parser.get_format_instructions()}
+        )
+        
+        self.chain = self.prompt | self.llm | self.parser
+
+    async def verify_against_evidence(self, claim: str, evidence: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Determine if the candidate's spoken claim is backed up by their resume text.
-        
-        Args:
-            claim (str): The claim from the planner agent.
-            evidence (list[Dict[str, Any]]): Retrieved chunks from the RAG retriever.
-            
-        Returns:
-            Dict[str, Any]: Verification result containing:
-                - claim (str)
-                - is_verified (bool)
-                - explanation (str): Why it is or isn't verified.
-                - confidence (float)
         """
-        # TODO:
-        # 1. Format the claim and the list of evidence chunks into a prompt.
-        # 2. Query the LLM asking for structured JSON output (is_verified, explanation).
-        # 3. Handle cases where the evidence is empty (not found in resume).
+        logger.info(f"Verifying claim: '{claim}' against {len(evidence)} evidence chunks.")
         
-        print(f"[ResumeVerifierAgent] Verifying claim: '{claim}' against evidence.")
-        
-        # Simulate verification failure/exaggeration logic
-        is_verified = False
-        explanation = "Possible exaggeration detected. Resume indicates managing 8 engineers, not 10."
-        
-        return {
-            "claim": claim,
-            "is_verified": is_verified,
-            "explanation": explanation,
-            "confidence": 0.85
-        }
+        evidence_text = "\n---\n".join([chunk.get("text", chunk.get("chunk", "")) for chunk in evidence])
+        if not evidence_text.strip():
+            logger.warning("No relevant knowledge base evidence found for claim.")
+            evidence_text = "No relevant resume evidence found."
+            
+        try:
+            result = await self.chain.ainvoke({
+                "claim": claim,
+                "evidence_text": evidence_text
+            })
+            res_dict = result.dict()
+            res_dict["claim"] = claim
+            logger.debug(f"Verification completed. Result: {res_dict['is_verified']}")
+            return res_dict
+        except Exception as e:
+            logger.error(f"Error verifying claim within agent: {e}")
+            return {
+                "claim": claim,
+                "is_verified": None,
+                "explanation": "Agent failed to process verification.",
+                "confidence": 0
+            }

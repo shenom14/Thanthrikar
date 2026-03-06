@@ -1,4 +1,26 @@
-from typing import Optional
+import re
+import pdfplumber
+from typing import Optional, Any
+from config.logger import setup_logger
+
+logger = setup_logger(__name__)
+
+def load_pdf(file_path: str) -> Any:
+    return pdfplumber.open(file_path)
+
+def extract_text(pdf_obj: Any) -> str:
+    text_content = []
+    for i, page in enumerate(pdf_obj.pages):
+        page_text = page.extract_text()
+        if page_text:
+            text_content.append(page_text)
+        else:
+            logger.warning(f"Failed to extract text from page {i+1}")
+    return "\n".join(text_content)
+
+def clean_text(raw_text: str) -> str:
+    cleaned = re.sub(r'\s+', ' ', raw_text)
+    return cleaned.strip()
 
 class ResumeParser:
     """
@@ -6,42 +28,20 @@ class ResumeParser:
     This component normalizes and cleans the text to prepare it for chunking and embedding.
     """
 
-    def __init__(self):
-        """
-        Initialize the parser with any required OCR or NLP libraries (e.g., PyMuPDF, pdfplumber).
-        """
+    def __init__(self) -> None:
         pass
 
     def parse_pdf(self, file_path: str) -> Optional[str]:
-        """
-        Extract text from a PDF resume file.
-        
-        Args:
-            file_path (str): The local path to the downloaded PDF resume.
-            
-        Returns:
-            Optional[str]: The extracted and cleaned raw text, or None if extraction fails.
-        """
-        # TODO: Implement PDF text extraction.
-        # Example using pdfplumber:
-        # 1. Open file using pdfplumber.open(file_path).
-        # 2. Iterate over pages and extract_text().
-        # 3. Join page texts into a single string.
-        # 4. Apply regex cleaning to remove excessive whitespace or unreadable characters.
-        
-        print(f"[ResumeParser] Parsing file: {file_path}")
-        
-        return "Resumé text output placeholder."
+        logger.info(f"Parsing PDF file: {file_path}")
+        try:
+            with load_pdf(file_path) as pdf_obj:
+                raw_text = extract_text(pdf_obj)
+            cleaned = clean_text(raw_text)
+            logger.info(f"Successfully extracted {len(cleaned)} chars of text from {file_path}")
+            return cleaned
+        except Exception as e:
+            logger.error(f"Error parsing file {file_path}: {e}")
+            return None
 
     def _clean_text(self, text: str) -> str:
-        """
-        Helper method to remove unwanted artifacts and normalize whitespace.
-        
-        Args:
-            text (str): Raw extracted text.
-            
-        Returns:
-            str: Cleaned text.
-        """
-        # TODO: Add specific cleaning rules.
-        return text.strip()
+        return clean_text(text)

@@ -1,4 +1,15 @@
 from typing import List, Dict, Any, Optional
+from langchain_groq import ChatGroq
+from langchain_core.prompts import PromptTemplate
+from pydantic import BaseModel, Field
+from langchain_core.output_parsers import PydanticOutputParser
+from config.logger import setup_logger
+from config.settings import settings
+
+logger = setup_logger(__name__)
+
+class FollowUpResult(BaseModel):
+    question: Optional[str] = Field(description="The suggested follow-up question, or null if no question is necessary.")
 
 class QuestionGeneratorAgent:
     """
@@ -6,66 +17,79 @@ class QuestionGeneratorAgent:
     as well as real-time follow-up questions during the interview.
     """
     
-    def __init__(self, llm_model: str = "gpt-4o"):
-        """
-        Initialize the AI agent for generating interview questions.
+    def __init__(self, llm_model: str = settings.QGEN_MODEL) -> None:
+        logger.info(f"Initializing QuestionGeneratorAgent with model: {llm_model}")
+        self.llm = ChatGroq(model_name=llm_model, temperature=0.7)
+        self.parser = PydanticOutputParser(pydantic_object=FollowUpResult)
         
-        Args:
-            llm_model (str): The language model to use.
-        """
-        # TODO: Configure prompt templates for two distinct modes: base generation and follow-up generation.
-        self.llm_model = llm_model
+        self.initial_prompt = PromptTemplate(
+            template="""You are preparing questions for an interview for a {role} position.
+The candidate has {experience} of experience.
 
-    def generate_initial_questions(self, role: str, experience: str, resume_summary: str, count: int = 5) -> List[str]:
-        """
-        Generate default questions before the interview starts based on candidate profile.
-        
-        Args:
-            role (str): Job role (e.g., 'Backend Engineer').
-            experience (str): Candidate's experience level (e.g., '5 years').
-            resume_summary (str): Summarized text from resume_parser.
-            count (int): Number of questions to return.
-            
-        Returns:
-            List[str]: List of interview questions.
-        """
-        # TODO: Create a prompt using the inputs and request a structured list of questions.
-        
-        print(f"[QuestionGeneratorAgent] Generating initial questions for {role}...")
-        
-        return [
-            "Explain the architecture of a system you built.",
-            "What scaling challenges did you face?",
-            "How did you ensure system reliability?",
-            "Can you discuss a time you resolved a complex backend bug?",
-            "How do you handle migrations with zero downtime?"
-        ]
+Resume Overview:
+{resume_summary}
 
-    def generate_follow_up(self,
+Generate EXACTLY {count} specific, deeply technical interview questions targeting their resume experience.
+Output them as a simple numbered list.""",
+            input_variables=["role", "experience", "resume_summary", "count"]
+        )
+        self.initial_chain = self.initial_prompt | self.llm
+        
+        self.follow_up_prompt = PromptTemplate(
+            template="""You are an AI assistant helping an interviewer inside a live interview.
+The candidate just made this statement: "{claim}"
+
+Based on background verification, we found the following AI Insight:
+"{insight_context}"
+
+If this insight suggests an exaggeration, falsehood, or point of confusion, generate a polite but probing follow-up question for the interviewer to ask.
+If the insight confirms everything is perfectly fine, return null for the question.
+
+{format_instructions}""",
+            input_variables=["claim", "insight_context"],
+            partial_variables={"format_instructions": self.parser.get_format_instructions()}
+        )
+        self.follow_up_chain = self.follow_up_prompt | ChatGroq(model_name=llm_model, temperature=0.2) | self.parser
+
+    async def generate_initial_questions(self, role: str, experience: str, resume_summary: str, count: int = 5) -> List[str]:
+        logger.info(f"Generating {count} initial questions for {role}...")
+        try:
+            result = await self.initial_chain.ainvoke({
+                "role": role, 
+                "experience": experience, 
+                "resume_summary": resume_summary, 
+                "count": count
+            })
+            lines = result.content.strip().split('\n')
+            extracted = [line.strip() for line in lines if line.strip()]
+            logger.debug(f"Generated {len(extracted)} initial questions.")
+            return extracted
+        except Exception as e:
+            logger.error(f"Error generating initial questions: {e}")
+            return []
+
+    async def generate_follow_up(self,
                            claim: str, 
                            verification_result: Optional[Dict[str, Any]] = None,
                            fact_check_result: Optional[Dict[str, Any]] = None) -> Optional[str]:
-        """
-        Generate an intelligent follow-up question if an irregularity, vagueness, or error is detected.
+        logger.info(f"Attempting to generate follow up for claim: '{claim}'")
         
-        Args:
-            claim (str): What the candidate said.
-            verification_result (Dict, optional): Result from the ResumeVerifierAgent.
-            fact_check_result (Dict, optional): Result from the FactCheckerAgent.
-            
-        Returns:
-            Optional[str]: A suggested follow-up question, or None if no follow-up is necessary.
-        """
-        # TODO:
-        # 1. Provide the LLM with the context of what the candidate said and what the system found.
-        # 2. Instruct the LLM to phrase a polite but probing question for the interviewer to ask.
-        
-        print(f"[QuestionGeneratorAgent] Generating follow up for claim: '{claim}'")
-        
+        insight_context = ""
         if verification_result and not verification_result.get("is_verified", True):
-            return "Could you clarify the size of the team you managed and your specific leadership responsibilities?"
+            insight_context = f"Resume verification failed: {verification_result.get('explanation')}"
+        elif fact_check_result and not fact_check_result.get("is_correct", True):
+            insight_context = f"Fact check failed: {fact_check_result.get('explanation')}"
+        else:
+            logger.debug("No negative insight detected. Skipping follow-up.")
+            return None
             
-        if fact_check_result and not fact_check_result.get("is_correct", True):
-            return "You mentioned Python lists are immutable. Could you elaborate on what you mean by that, or compare it to tuples?"
-            
-        return None
+        try:
+            result = await self.follow_up_chain.ainvoke({
+                "claim": claim,
+                "insight_context": insight_context
+            })
+            logger.debug(f"Generated follow-up: {result.question}")
+            return result.question
+        except Exception as e:
+            logger.error(f"Error generating follow up question: {e}")
+            return None

@@ -1,4 +1,12 @@
+import os
+import argparse
 from typing import List, Dict, Any
+from sentence_transformers import SentenceTransformer
+import chromadb
+
+# Initialize models and DB same as ingest
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'chroma_db')
 
 class ResumeRetriever:
     """
@@ -12,9 +20,15 @@ class ResumeRetriever:
         Args:
             collection_name (str): The name of the collection to search within.
         """
-        # TODO: Initialize SentenceTransformerEmbeddings (must match ingest.py)
-        # TODO: Initialize Chroma client pointing to the target local persistent directory.
         self.collection_name = collection_name
+        self.model = SentenceTransformer(EMBEDDING_MODEL)
+        
+        try:
+            self.chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+            self.collection = self.chroma_client.get_collection(name=self.collection_name)
+        except Exception as e:
+            print(f"Could not connect to ChromaDB or collection '{self.collection_name}' does not exist. Error: {e}")
+            self.collection = None
 
     def retrieve_evidence(self, candidate_id: str, claim: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """
@@ -28,18 +42,78 @@ class ResumeRetriever:
         Returns:
             List[Dict[str, Any]]: A list of dictionaries containing retrieved text and its metadata.
         """
-        # TODO: 
-        # 1. Generate an embedding for the `claim` query.
-        # 2. Perform a similarity search in Chroma.
-        # 3. Filter the results dynamically by `candidate_id` via Chroma metadata filter.
-        # 4. Return top chunks as context.
-        
+        claim = claim.strip()
+        if not claim:
+            print("Error: Empty claim provided.")
+            return []
+            
+        if not self.collection:
+            print("Error: Collection not initialized.")
+            return []
+            
         print(f"[ResumeRetriever] Searching for evidence related to claim: '{claim}'")
         
-        return [
-            {
-                "text": "Managed backend team of 8 engineers.",
-                "metadata": {"candidate_id": candidate_id, "source": "resume_page_1"},
-                "score": 0.89 # similarity score placeholder
-            }
-        ]
+        # 1. Generate an embedding for the `claim` query.
+        query_embedding = self.model.encode([claim])
+        
+        # 2. Perform a similarity search in Chroma.
+        # Filtering by candidate_id if provided. In this simple example, we search globally.
+        # In a multi-tenant system: where={"candidate_id": candidate_id}
+        where_clause = {}
+        # if candidate_id: where_clause["candidate_id"] = candidate_id
+        
+        results = self.collection.query(
+            query_embeddings=query_embedding.tolist(),
+            n_results=top_k,
+            where=where_clause if where_clause else None
+        )
+        
+        retrieved_chunks = []
+        if results and 'documents' in results and results['documents']:
+            docs = results['documents'][0]
+            metadatas = results['metadatas'][0] if 'metadatas' in results and results['metadatas'] else [{}] * len(docs)
+            distances = results['distances'][0] if 'distances' in results and results['distances'] else [0.0] * len(docs)
+            
+            for doc, meta, dist in zip(docs, metadatas, distances):
+                retrieved_chunks.append({
+                    "text": doc,
+                    "metadata": meta,
+                    "score": 1 - dist # Pseudo-similarity
+                })
+                
+        return retrieved_chunks
+
+
+def retrieve(query: str, top_k: int = 5):
+    """
+    Search the vector database for chunks most relevant to the user query (CLI interface).
+    """
+    retriever = ResumeRetriever()
+    # Using a dummy candidate_id for CLI testing globally
+    results = retriever.retrieve_evidence(candidate_id="", claim=query, top_k=top_k)
+    
+    mapped_results = []
+    for res in results:
+        mapped_results.append({
+            "source": res["metadata"].get("source", "Unknown"),
+            "chunk": res["text"]
+        })
+    return mapped_results
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Retrieve top relevant chunks from the resume vector database.")
+    parser.add_argument("query", type=str, help="The search query (e.g., 'Python experience')")
+    parser.add_argument("--top_k", type=int, default=5, help="Number of results to retrieve")
+    args = parser.parse_args()
+    
+    results = retrieve(args.query, top_k=args.top_k)
+    
+    if results:
+        print("\n--- Top Relevant Chunks ---")
+        for i, res in enumerate(results, 1):
+            print(f"\n[Result {i}] Source: {os.path.basename(res['source'])}")
+            print(f"Content: {res['chunk']}")
+            print("-" * 60)
+    else:
+        print("\nNo results found.")

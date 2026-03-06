@@ -1,63 +1,70 @@
 import os
 from typing import Dict, Any, Optional
+from config.logger import setup_logger
+
+logger = setup_logger(__name__)
+# Keep using JSON loader as per the free-tier restriction, but add logging
+import json
 
 class CandidateLoader:
     """
-    CandidateLoader handles interactions with the Airtable Candidates database.
-    It fetches candidate profiles, retrieves resume attachments, and standardizes data.
+    CandidateLoader handles fetching candidate profiles and their resumes.
+    It defaults to reading from a local JSON file to avoid requiring paid API keys.
     """
 
-    def __init__(self, api_key: Optional[str] = None, base_id: Optional[str] = None):
-        """
-        Initialize the connection to Airtable.
-        
-        Args:
-            api_key (str): Airtable personal access token.
-            base_id (str): The ID of the Airtable base containing candidates.
-        """
-        self.api_key = api_key or os.getenv("AIRTABLE_API_KEY")
-        self.base_id = base_id or os.getenv("AIRTABLE_BASE_ID")
+    def __init__(self, use_airtable: bool = False, local_db_path: str = "data/candidates.json"):
+        self.use_airtable = use_airtable
+        self.local_db_path = local_db_path
+
+    def _ensure_local_db(self) -> None:
+        if not os.path.exists(self.local_db_path):
+            os.makedirs(os.path.dirname(self.local_db_path), exist_ok=True)
+            with open(self.local_db_path, "w") as f:
+                json.dump({
+                    "rec123": {
+                        "name": "Jane Doe",
+                        "role": "Senior Backend Engineer",
+                        "experience": "8 years",
+                        "resume_file": "path/to/downloaded/jane_doe_resume.pdf"
+                    }
+                }, f)
+            logger.info(f"Initialized blank mock candidate database at {self.local_db_path}")
 
     def fetch_candidate(self, candidate_id: str) -> Dict[str, Any]:
         """
         Fetch a single candidate's record by ID.
-        
-        Args:
-            candidate_id (str): The Airtable record ID for the candidate.
-            
-        Returns:
-            Dict[str, Any]: Structured candidate data containing:
-                - name (str)
-                - role (str)
-                - experience (str)
-                - resume_file (str): Local path or URL to downloaded resume
         """
-        # TODO: Implement Airtable API call using httpx or pyairtable.
-        # Example logic:
-        # 1. GET request to https://api.airtable.com/v0/{base_id}/Candidates/{candidate_id}
-        # 2. Extract name, job_role, experience.
-        # 3. If there is a resume attachment, download it locally.
+        logger.info(f"Fetching candidate {candidate_id}...")
         
-        print(f"[CandidateLoader] Fetching candidate {candidate_id} from Airtable...")
-        
-        # Placeholder data structure
-        return {
-            "name": "Jane Doe",
-            "role": "Senior Backend Engineer",
-            "experience": "8 years",
-            "resume_file": "path/to/downloaded/jane_doe_resume.pdf"
-        }
+        if self.use_airtable:
+            # Requires AIRTABLE_API_KEY
+            logger.error("Airtable API integration is toggled on but not fully implemented.")
+            raise NotImplementedError("Airtable API integration not fully implemented.")
+            
+        self._ensure_local_db()
+        try:
+            with open(self.local_db_path, "r") as f:
+                candidates = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load candidate DB: {e}")
+            candidates = {}
+            
+        candidate_data = candidates.get(candidate_id)
+        if not candidate_data:
+            logger.warning(f"Candidate {candidate_id} not found in DB.")
+            return {
+                "name": "Unknown",
+                "role": "Unknown",
+                "experience": "Unknown",
+                "resume_file": ""
+            }
+            
+        logger.info(f"Successfully loaded candidate data for {candidate_id}")
+        return candidate_data
 
     def download_resume(self, url: str, destination_path: str) -> bool:
         """
-        Helper method to download a candidate's resume from Airtable attachment URL.
-        
-        Args:
-            url (str): The attachment URL.
-            destination_path (str): Where to save the file locally.
-            
-        Returns:
-            bool: True if download was successful.
+        Helper method to copy or download a resume file.
         """
-        # TODO: Implement file download stream.
-        pass
+        logger.debug(f"Stub: Called download_resume for URL {url}")
+        return False

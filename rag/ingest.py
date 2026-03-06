@@ -1,70 +1,90 @@
-from typing import List
+import os
+import sys
+import argparse
 
-class DocumentChunker:
+# Ensure we can import from tools
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from tools.resume_parser import load_pdf, extract_text, clean_text
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from sentence_transformers import SentenceTransformer
+import chromadb
+
+# Initialize SentenceTransformer model
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+
+# Initialize ChromaDB client to a local folder in the project root
+CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'chroma_db')
+
+def ingest_pdf(pdf_path: str):
     """
-    Handles chunking of raw resume text into semantically meaningful pieces.
+    Ingest a PDF resume into the ChromaDB vector database.
     """
+    if not os.path.exists(pdf_path):
+        print(f"Error: PDF not found at {pdf_path}")
+        return
+
+    print(f"Processing PDF: {pdf_path}")
     
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
-        # TODO: Configure LangChain's RecursiveCharacterTextSplitter
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-
-    def split_text(self, text: str) -> List[str]:
-        """
-        Split text into smaller chunks for vector embeddings.
-        
-        Args:
-            text (str): The cleaned text from a resume.
-            
-        Returns:
-            List[str]: A list of text chunks.
-        """
-        # TODO: Use a LangChain text splitter here.
-        return [text]
-
-class ChromaIngestor:
-    """
-    ChromaIngestor manages creating embeddings from text chunks and loading them into a ChromaDB instance.
-    """
+    # 1. Load PDF
+    try:
+        pdf = load_pdf(pdf_path)
+    except Exception as e:
+        print(f"Error loading PDF {pdf_path}: {e}")
+        return
     
-    def __init__(self, collection_name: str = "resumes"):
-        """
-        Initialize the connection to ChromaDB and the Embedding model.
-        
-        Args:
-            collection_name (str): The name of the collection to store vectors in.
-        """
-        # TODO: Initialize SentenceTransformerEmbeddings
-        # TODO: Initialize Chroma client targeting a local directory like './chroma_db'
-        self.collection_name = collection_name
-
-    def ingest_chunks(self, chunks: List[str], metadata: dict) -> bool:
-        """
-        Convert text chunks to embeddings and store them with candidate metadata.
-        
-        Args:
-            chunks (List[str]): The chunks of resume text.
-            metadata (dict): Metadata to attach to the vectors (e.g., candidate_id).
-            
-        Returns:
-            bool: True if ingestion was successful.
-        """
-        # TODO: 
-        # 1. Generate embeddings for chunks using SentenceTransformers.
-        # 2. Add texts, embeddings, and metadata to Chroma instance.
-        
-        print(f"[ChromaIngestor] Ingesting {len(chunks)} chunks into ChromaDB...")
-        return True
-
-def run_ingestion_pipeline(resume_text: str, candidate_id: str):
-    """
-    End-to-end pipeline linking text splitting with vector ingestion.
-    """
-    chunker = DocumentChunker()
-    ingestor = ChromaIngestor()
+    # 2. Extract Text
+    raw_text = extract_text(pdf)
     
-    chunks = chunker.split_text(resume_text)
-    metadata = {"candidate_id": candidate_id}
+    # 3. Clean Text
+    cleaned_text = clean_text(raw_text)
     
-    ingestor.ingest_chunks(chunks, metadata)
+    # 4. Chunking
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50
+    )
+    chunks = text_splitter.split_text(cleaned_text)
+    print(f"Generated {len(chunks)} text chunks.")
+    
+    if not chunks:
+        print(f"Warning: No text could be extracted or chunked from {pdf_path}. Skipping.")
+        return
+    
+    # 5. Embeddings
+    print("Generating embeddings...")
+    model = SentenceTransformer(EMBEDDING_MODEL)
+    embeddings = model.encode(chunks)
+    
+    # 6. Vector Database Storage
+    print("Storing chunks and embeddings in ChromaDB...")
+    try:
+        chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+        collection = chroma_client.get_or_create_collection(name="resumes")
+    except Exception as e:
+        print(f"Error connecting to ChromaDB: {e}")
+        return
+    
+    # Prepare data for insertion
+    ids = [f"{os.path.basename(pdf_path)}_chunk_{i}" for i in range(len(chunks))]
+    metadatas = [{"source": pdf_path} for _ in range(len(chunks))]
+    
+    try:
+        collection.upsert(
+            ids=ids,
+            embeddings=embeddings.tolist(),
+            metadatas=metadatas,
+            documents=chunks
+        )
+    except Exception as e:
+        print(f"Error saving to ChromaDB: {e}")
+        return
+    
+    print(f"Successfully ingested {pdf_path} into ChromaDB!")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Ingest a resume PDF into the ChromaDB vector database.")
+    parser.add_argument("pdf_path", type=str, help="Path to the PDF resume")
+    args = parser.parse_args()
+    
+    ingest_pdf(args.pdf_path)
