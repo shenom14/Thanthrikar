@@ -1,0 +1,14 @@
+fastapi==0.104.1
+uvicorn==0.24.0.post1
+pydantic==2.5.2
+langchain==0.0.339
+langchain-openai==0.0.2  # or corresponding latest
+chromadb==0.4.15
+sentence-transformers==2.2.2
+whisper==1.1.10 # openai-whisper
+pdfplumber==0.10.3
+pyairtable==2.1.0
+python-dotenv==1.0.0
+httpx==0.25.1
+aiofiles==23.2.1
+asyncio==3.4.3

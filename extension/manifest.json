@@ -1,0 +1,35 @@
+{
+    "manifest_version": 3,
+    "name": "AI Interview Copilot",
+    "version": "1.0",
+    "description": "Virtual interview assistant with real-time claims verification and dynamic follow-up generation.",
+    "action": {
+        "default_popup": "popup.html",
+        "default_title": "Open AI Copilot"
+    },
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://zoom.us/*",
+                "https://meet.google.com/*",
+                "https://teams.microsoft.com/*"
+            ],
+            "js": [
+                "content.js"
+            ]
+        }
+    ],
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "storage",
+        "tabCapture"
+    ],
+    "host_permissions": [
+        "http://localhost:8000/*"
+    ]
+}

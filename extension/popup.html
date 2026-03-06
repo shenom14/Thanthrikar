@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview Copilot</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            width: 350px;
+            padding: 15px;
+            background-color: #f7f9fc;
+            color: #333;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            color: #2c3e50;
+        }
+        .section {
+            background-color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .candidate-info {
+            font-size: 0.9rem;
+        }
+        .question-box {
+            font-weight: bold;
+            color: #1a5276;
+            margin-bottom: 8px;
+        }
+        .insights {
+            font-size: 0.85rem;
+            color: #d35400;
+        }
+        button {
+            width: 100%;
+            padding: 8px;
+            background-color: #2980b9;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #3498db;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>AI Interview Copilot</h2>
+
+    <div class="section candidate-info">
+        <strong>Candidate:</strong> <span id="candidate-name">John Smith</span><br/>
+        <strong>Role:</strong> <span id="candidate-role">Backend Engineer</span>
+    </div>
+
+    <div class="section">
+        <label><strong>Current Question:</strong></label>
+        <div class="question-box" id="current-question">
+            Explain the architecture of a system you built.
+        </div>
+        <button id="next-question-btn">Next Question</button>
+    </div>
+
+    <div class="section">
+        <label><strong>AI Insights:</strong></label>
+        <div class="insights" id="ai-insights">
+            <em>Listening for claims...</em>
+        </div>
+    </div>
+
+    <div class="section">
+        <label><strong>Suggested Follow-up:</strong></label>
+        <div class="question-box" id="follow-up-question">
+            <em>None currently.</em>
+        </div>
+    </div>
+
+    <script src="background.js"></script>
+</body>
+</html>
