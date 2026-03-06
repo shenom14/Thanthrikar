@@ -1,0 +1,79 @@
+﻿git : remote: error: GH013: 
+Repository rule violations 
+found for refs/heads/main.   
+     
+At line:1 char:1
++ git push origin main -f > 
+push_log.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
+    + CategoryInfo           
+   : NotSpecified: (remote:  
+   error: ...s/main.         
+   :String) [], RemoteExc    
+eption
+    + FullyQualifiedErrorId  
+   : NativeCommandError
+ 
+remote: 
+remote: - GITHUB PUSH 
+PROTECTION        
+remote:   ΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓ
+ÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇö
+ΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇ
+öΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓ
+ÇöΓÇöΓÇöΓÇöΓÇöΓÇö        
+remote:     Resolve the 
+following violations before 
+pushing again        
+remote: 
+remote:     - Push cannot 
+contain secrets        
+remote: 
+remote:             
+remote:      (?) Learn how 
+to resolve a blocked push    
+    
+remote:      https://docs.git
+hub.com/code-security/secret-
+scanning/working-with-secret-
+scanning-and-push-protection/
+working-with-push-protection-
+from-the-command-line#resolvi
+ng-a-blocked-push        
+remote:             
+remote:             
+remote:       ΓÇöΓÇö Groq 
+API Key ΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇö
+ΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇ
+öΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓ
+ÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇö
+ΓÇöΓÇö        
+remote:        locations:    
+    
+remote:          - commit: 86
+927aae1a5e92a1e563ff4be25a4c7
+f22d2cfdb        
+remote:            path: 
+.env:1        
+remote:             
+remote:        (?) To push, 
+remove secret from commit(s) 
+or follow this URL to allow 
+the secret.        
+remote:        https://github
+.com/shenom14/Thanthrikar/sec
+urity/secret-scanning/unblock
+-secret/3AaHWDCQiAM6P2GWdbzwz
+gKnFZg        
+remote:             
+remote: 
+remote: 
+To https://github.com/shenom1
+4/Thanthrikar
+ ! [remote rejected] main -> 
+main (push declined due to 
+repository rule violations)
+error: failed to push some 
+refs to 'https://github.com/s
+henom14/Thanthrikar'
