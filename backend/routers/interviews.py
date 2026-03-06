@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .. import schemas
 from ..database import get_db
+from ..security import verify_api_key
 from config.logger import setup_logger
 from services.interview_service import InterviewService
 from services.report_service import ReportService
@@ -10,7 +11,8 @@ logger = setup_logger(__name__)
 
 router = APIRouter(
     prefix="/interviews",
-    tags=["interviews"]
+    tags=["interviews"],
+    dependencies=[Depends(verify_api_key)],
 )
 
 @router.post("/start", response_model=schemas.Session)
@@ -22,6 +24,9 @@ def start_interview_session(session_data: schemas.SessionCreate, db: Session = D
     except ValueError as e:
         logger.warning(f"Failed to start interview: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Unexpected error while starting interview for candidate {session_data.candidate_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error while starting interview session.")
 
 @router.post("/{session_id}/end", response_model=schemas.Session)
 def end_interview_session(session_id: int, db: Session = Depends(get_db)):

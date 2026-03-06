@@ -134,8 +134,13 @@ function handleReconnect() {
 
 function sendAudioToWebSocket(audioBuffer) {
     if (socket && socket.readyState === WebSocket.OPEN) {
-        // TODO: In a real app we might convert float32 to Int16 or send base64 depending on backend Whisper endpoint
-        // socket.send(audioBuffer);
+        // For the current prototype, treat the payload as a text transcript chunk.
+        // In a future iteration this can be upgraded to send raw audio bytes to a
+        // dedicated STT endpoint, which in turn feeds transcript text into the
+        // StreamingPipeline on the backend.
+        if (typeof audioBuffer === "string") {
+            socket.send(audioBuffer);
+        }
     }
 }
 

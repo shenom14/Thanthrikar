@@ -1,22 +1,20 @@
 import os
 import sys
 import argparse
+from typing import Optional
 
-# Ensure we can import from tools
+# Ensure we can import from tools and project modules
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from tools.resume_parser import load_pdf, extract_text, clean_text
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
 import chromadb
-
-# Initialize SentenceTransformer model
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+from rag.embeddings import embedding_service
 
 # Initialize ChromaDB client to a local folder in the project root
 CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'chroma_db')
 
-def ingest_pdf(pdf_path: str):
+def ingest_pdf(pdf_path: str, candidate_id: Optional[str] = None):
     """
     Ingest a PDF resume into the ChromaDB vector database.
     """
@@ -53,7 +51,7 @@ def ingest_pdf(pdf_path: str):
     
     # 5. Embeddings
     print("Generating embeddings...")
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    model = embedding_service.get_model()
     embeddings = model.encode(chunks)
     
     # 6. Vector Database Storage
@@ -67,7 +65,11 @@ def ingest_pdf(pdf_path: str):
     
     # Prepare data for insertion
     ids = [f"{os.path.basename(pdf_path)}_chunk_{i}" for i in range(len(chunks))]
-    metadatas = [{"source": pdf_path} for _ in range(len(chunks))]
+
+    base_metadata = {"source": pdf_path}
+    if candidate_id:
+        base_metadata["candidate_id"] = candidate_id
+    metadatas = [base_metadata.copy() for _ in range(len(chunks))]
     
     try:
         collection.upsert(
@@ -85,6 +87,12 @@ def ingest_pdf(pdf_path: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingest a resume PDF into the ChromaDB vector database.")
     parser.add_argument("pdf_path", type=str, help="Path to the PDF resume")
+    parser.add_argument(
+        "--candidate-id",
+        type=str,
+        default=None,
+        help="Optional candidate ID to associate with this resume in the vector store."
+    )
     args = parser.parse_args()
     
-    ingest_pdf(args.pdf_path)
+    ingest_pdf(args.pdf_path, candidate_id=args.candidate_id)

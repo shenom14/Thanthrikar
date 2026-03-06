@@ -20,8 +20,22 @@ class InterviewService:
         # Verify candidate exists
         candidate = self.db.query(models.Candidate).filter(models.Candidate.id == candidate_id).first()
         if not candidate:
-            logger.warning(f"Attempted to start session for non-existent candidate: {candidate_id}")
-            raise ValueError("Candidate not found")
+            logger.info(f"Candidate {candidate_id} not found in DB. Attempting auto-hydration...")
+            from airtable.candidate_loader import CandidateLoader
+            loader = CandidateLoader()
+            c_data = loader.fetch_candidate(candidate_id)
+            if c_data.get("name") == "Unknown":
+                logger.warning(f"Attempted to start session for non-existent candidate: {candidate_id}")
+                raise ValueError("Candidate not found")
+                
+            candidate = models.Candidate(
+                id=candidate_id,
+                name=c_data.get("name"),
+                role=c_data.get("role"),
+                experience=c_data.get("experience"),
+            )
+            self.db.add(candidate)
+            self.db.flush() # ensure ID is available
             
         new_session = models.InterviewSession(
             candidate_id=candidate_id,

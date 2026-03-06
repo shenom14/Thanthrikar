@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..database import get_db
+from ..security import verify_api_key
 
 # Initialize placeholder for implementations
 # from airtable.candidate_loader import CandidateLoader
@@ -10,7 +11,8 @@ from ..database import get_db
 
 router = APIRouter(
     prefix="/candidates",
-    tags=["candidates"]
+    tags=["candidates"],
+    dependencies=[Depends(verify_api_key)],
 )
 
 @router.post("/", response_model=schemas.Candidate)

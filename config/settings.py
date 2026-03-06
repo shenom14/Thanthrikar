@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     AIRTABLE_API_KEY: Optional[str] = None
     AIRTABLE_BASE_ID: Optional[str] = None
+    EXTENSION_API_KEY: Optional[str] = None
     
     # Paths and System Settings
     ENVIRONMENT: str = "development"

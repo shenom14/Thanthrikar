@@ -1,11 +1,11 @@
 import os
 import argparse
 from typing import List, Dict, Any
-from sentence_transformers import SentenceTransformer
 import chromadb
 
-# Initialize models and DB same as ingest
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+from rag.embeddings import embedding_service
+
+# Initialize DB path same as ingest
 CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'chroma_db')
 
 class ResumeRetriever:
@@ -21,7 +21,8 @@ class ResumeRetriever:
             collection_name (str): The name of the collection to search within.
         """
         self.collection_name = collection_name
-        self.model = SentenceTransformer(EMBEDDING_MODEL)
+        # Reuse the shared embedding model to avoid reloading it per-component
+        self.model = embedding_service.get_model()
         
         try:
             self.chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
@@ -57,15 +58,15 @@ class ResumeRetriever:
         query_embedding = self.model.encode([claim])
         
         # 2. Perform a similarity search in Chroma.
-        # Filtering by candidate_id if provided. In this simple example, we search globally.
-        # In a multi-tenant system: where={"candidate_id": candidate_id}
+        # Filter by candidate_id when provided so each candidate's resume evidence is isolated.
         where_clause = {}
-        # if candidate_id: where_clause["candidate_id"] = candidate_id
+        if candidate_id:
+            where_clause["candidate_id"] = candidate_id
         
         results = self.collection.query(
             query_embeddings=query_embedding.tolist(),
             n_results=top_k,
-            where=where_clause if where_clause else None
+            where=where_clause or None
         )
         
         retrieved_chunks = []
