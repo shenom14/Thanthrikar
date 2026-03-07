@@ -86,48 +86,66 @@ async def interview_stream(websocket: WebSocket, session_id: int):
     # Each WebSocket gets its own independent speech recognizer state tracker
     recognizer = transcriber_service.create_recognizer() if transcriber_service.enabled else None
 
-    try:
-        while True:
-            data_event = await websocket.receive()
-            text_chunk = ""
-            
-            if "bytes" in data_event:
-                if recognizer:
-                    loop = asyncio.get_running_loop()
-                    text_chunk = await loop.run_in_executor(
-                        None, transcriber_service.process_chunk, recognizer, data_event["bytes"]
-                    )
-            elif "text" in data_event:
-                text_chunk = data_event["text"]
-                
-            if not text_chunk:
-                continue
-                
-            logger.debug(
-                f"Processing transcript chunk for session {session_id} length: {len(text_chunk)}"
-            )
+    # Async buffer to prevent Vosk from blocking websocket.receive()
+    audio_buffer = bytearray()
+    is_transcribing = False
 
-            # Process the transcript chunk through the streaming pipeline.
-            try:
+    async def process_audio_buffer():
+        nonlocal audio_buffer, is_transcribing
+        if not recognizer or not audio_buffer or is_transcribing:
+            return
+            
+        is_transcribing = True
+        try:
+            # Take everything currently in the buffer and clear it
+            chunk_to_process = bytes(audio_buffer)
+            audio_buffer.clear()
+            
+            loop = asyncio.get_running_loop()
+            text_chunk = await loop.run_in_executor(
+                None, transcriber_service.process_chunk, recognizer, chunk_to_process
+            )
+            
+            if text_chunk:
+                logger.debug(f"Processing transcript chunk for session {session_id} length: {len(text_chunk)}")
                 messages = await streaming_pipeline.handle_transcript_chunk(
                     db=db, session_id=session_id, transcript_chunk=text_chunk
                 )
-            except Exception as e:
-                logger.error(f"Streaming pipeline error for session {session_id}: {e}")
-                messages = []
+                for msg in messages:
+                    await websocket.send_json(msg)
+                
+                await websocket.send_json({"type": "heartbeat", "message": "Acknowledged payload."})
+        except Exception as e:
+            logger.error(f"Error in audio processing task: {e}")
+        finally:
+            is_transcribing = False
+            # Check if more data arrived while we were transcribing
+            if audio_buffer:
+                asyncio.create_task(process_audio_buffer())
 
-            for msg in messages:
-                await websocket.send_json(msg)
-
-            await websocket.send_json(
-                {
-                    "type": "heartbeat",
-                    "message": "Acknowledged payload.",
-                }
-            )
+    try:
+        while True:
+            # This read is never blocked by Vosk anymore, so we drain the socket instantly
+            data_event = await websocket.receive()
+            
+            if "bytes" in data_event:
+                audio_buffer.extend(data_event["bytes"])
+                if not is_transcribing:
+                    asyncio.create_task(process_audio_buffer())
+                    
+            elif "text" in data_event:
+                text_chunk = data_event["text"]
+                if text_chunk:
+                    logger.debug(f"Processing text chunk for session {session_id} length: {len(text_chunk)}")
+                    messages = await streaming_pipeline.handle_transcript_chunk(
+                        db=db, session_id=session_id, transcript_chunk=text_chunk
+                    )
+                    for msg in messages:
+                        await websocket.send_json(msg)
+                    await websocket.send_json({"type": "heartbeat", "message": "Acknowledged payload."})
 
     except Exception as e:
-        logger.error(f"WebSocket Session {session_id} Error: {e}")
+        logger.error(f"WebSocket Session {session_id} Error/Disconnect: {e}")
     finally:
         db.close()
         try:
