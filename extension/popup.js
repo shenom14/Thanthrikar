@@ -1,140 +1,259 @@
-/**
- * popup.js 
- * Handles UI interactions for the extension popup window.
- */
-
 document.addEventListener("DOMContentLoaded", () => {
-    const setupView = document.getElementById("setup-view");
-    const activeView = document.getElementById("active-view");
-    const startBtn = document.getElementById("start-btn");
-    const endBtn = document.getElementById("end-btn");
-    const captureMicBtn = document.getElementById("capture-mic-btn");
-    const wsStatusDot = document.getElementById("ws-status");
-    const manualClaimInput = document.getElementById("manual-claim-input");
-    const sendClaimBtn = document.getElementById("send-claim-btn");
+    // --- UI Elements ---
+    const setupContainer = document.getElementById("setup-container");
+    const interviewView = document.getElementById("interview-view");
+    
+    // Tabs
+    const tabAirtable = document.getElementById("tab-airtable");
+    const tabManual = document.getElementById("tab-manual");
+    const viewAirtable = document.getElementById("view-airtable");
+    const viewManual = document.getElementById("view-manual");
+    
+    // Airtable Mode Elements
+    const airtableSelect = document.getElementById("airtable-select");
+    const btnGenAirtable = document.getElementById("generate-btn-airtable");
+    const errAirtable = document.getElementById("error-msg-airtable");
 
-    let isMicCapturing = false;
+    // Manual Mode Elements
+    const btnGenManual = document.getElementById("generate-btn-manual");
+    const errManual = document.getElementById("error-msg-manual");
 
-    // Check current state from background script on load
-    chrome.runtime.sendMessage({ action: "get_status" }, (res) => {
-        if (res && res.isActive) {
-            setupView.style.display = "none";
-            activeView.style.display = "block";
-            document.getElementById("session-id-display").innerText = res.sessionId;
-            updateWsDot(res.socketReady);
+    // Interview View Elements
+    const nextBtn = document.getElementById("next-btn");
+    const followupBtn = document.getElementById("followup-btn");
+    const resetBtn = document.getElementById("reset-btn");
+    const followupStackEl = document.getElementById("followup-stack");
+
+    // --- State Variables ---
+    let questionsQueue = [];
+    let currentIndex = 0;
+    let followUpContext = []; // Accumulated follow-up text for next API request (no backend state)
+
+    // --- Mock Airtable CRM Data ---
+    const mockAirtableData = [
+        {
+            id: "rec1",
+            name: "Alice Johnson",
+            role: "Senior Frontend Engineer",
+            years_experience: 6,
+            linkedin_url: "https://linkedin.com/in/alicej",
+            github_username: "alicejs",
+            resume_text: "Expert in React, TypeScript, and Webpack. Performance optimization and accessibility advocate."
+        },
+        {
+            id: "rec2",
+            name: "Bob Builder",
+            role: "DevOps Engineer",
+            years_experience: 4,
+            linkedin_url: "https://linkedin.com/in/bobops",
+            github_username: "bobinfra",
+            resume_text: "Built CI/CD pipelines using GitHub Actions, deployed workloads on AWS EKS and automated via Terraform."
+        }
+    ];
+
+    // Initialize mock dropdown
+    mockAirtableData.forEach((candidate, index) => {
+        const option = document.createElement("option");
+        option.value = index;
+        option.text = `${candidate.name} - ${candidate.role}`;
+        airtableSelect.appendChild(option);
+    });
+
+    // --- Persistence on Load ---
+    chrome.storage.local.get(["interviewQuestions", "currentIndex"], (res) => {
+        if (res.interviewQuestions && res.interviewQuestions.length > 0) {
+            questionsQueue = res.interviewQuestions;
+            currentIndex = res.currentIndex || 0;
+            showInterviewView();
         }
     });
 
-    startBtn.addEventListener("click", () => {
-        const candidateId = document.getElementById("candidate-id-input").value.trim();
-        if (!candidateId) return alert("Please enter Candidate ID");
-
-        startBtn.disabled = true;
-        startBtn.innerText = "Starting...";
-
-        chrome.runtime.sendMessage({ action: "start_session", candidateId }, (res) => {
-            if (res && res.success) {
-                setupView.style.display = "none";
-                activeView.style.display = "block";
-                document.getElementById("candidate-id-display").innerText = candidateId;
-                document.getElementById("session-id-display").innerText = res.session.id;
-            } else {
-                alert("Failed to start: " + (res.error || "Unknown"));
-                startBtn.disabled = false;
-                startBtn.innerText = "Start Interview";
-            }
-        });
+    // --- Tab Switching Logic ---
+    tabAirtable.addEventListener("click", () => {
+        tabAirtable.classList.add("active");
+        tabManual.classList.remove("active");
+        viewAirtable.classList.add("active");
+        viewManual.classList.remove("active");
     });
 
-    endBtn.addEventListener("click", () => {
-        stopAudioCapture();
-        chrome.runtime.sendMessage({ action: "end_session" }, (res) => {
-            setupView.style.display = "block";
-            activeView.style.display = "none";
-            startBtn.disabled = false;
-            startBtn.innerText = "Start Interview";
-            updateWsDot(false);
-        });
+    tabManual.addEventListener("click", () => {
+        tabManual.classList.add("active");
+        tabAirtable.classList.remove("active");
+        viewManual.classList.add("active");
+        viewAirtable.classList.remove("active");
     });
 
-    captureMicBtn.addEventListener("click", async () => {
-        if (isMicCapturing) {
-            stopAudioCapture();
+    // --- Generation Trigger (Airtable Mode) ---
+    btnGenAirtable.addEventListener("click", () => {
+        const selectedIndex = airtableSelect.value;
+        const payload = mockAirtableData[selectedIndex];
+
+        btnGenAirtable.disabled = true;
+        btnGenAirtable.innerText = "Analyzing CRM Data...";
+        errAirtable.style.display = 'none';
+
+        makeQuestionsRequest(payload, btnGenAirtable, errAirtable, "Generate Questions from CRM");
+    });
+
+    // --- Generation Trigger (Manual Mode) ---
+    btnGenManual.addEventListener("click", () => {
+        const name = document.getElementById("candidate-name").value.trim();
+        const role = document.getElementById("candidate-role").value.trim();
+        const exp = parseInt(document.getElementById("candidate-exp").value) || 0;
+        const linkedin = document.getElementById("candidate-linkedin").value.trim();
+        const github = document.getElementById("candidate-github").value.trim();
+        const resume = document.getElementById("candidate-resume").value.trim();
+
+        if (!name || !role) {
+            showError(errManual, "Name and Role are required.");
             return;
         }
 
-        try {
-            // Open a dedicated tab that requests mic permission and streams real audio.
-            // audio_capture.js in that tab captures 16kHz PCM audio via AudioWorklet
-            // and sends Int16Array chunks back via chrome.runtime.sendMessage.
-            chrome.tabs.create({
-                url: 'chrome-extension://' + chrome.runtime.id + '/audio_capture.html',
-                active: false
-            }, function (tab) {
-                isMicCapturing = true;
-                captureMicBtn.innerText = "⏹ Stop Mic Capture";
-                document.getElementById("mic-status").innerText = "🎙️ Microphone is live — capturing audio...";
-            });
-        } catch (e) {
-            console.error("Mic error", e);
-            document.getElementById("mic-status").innerText = "Error accessing mic: " + e.message;
-        }
+        btnGenManual.disabled = true;
+        btnGenManual.innerText = "Analyzing Candidate...";
+        errManual.style.display = 'none';
+
+        const payload = {
+            name: name,
+            role: role,
+            years_experience: exp,
+            resume_text: resume || "No resume provided.",
+            linkedin_url: linkedin || null,
+            github_username: github || null
+        };
+
+        makeQuestionsRequest(payload, btnGenManual, errManual, "Generate Question Set");
     });
 
-    function stopAudioCapture() {
-        // Tell the audio capture tab to release the mic stream before closing
-        chrome.tabs.query({
-            url: 'chrome-extension://' + chrome.runtime.id + '/audio_capture.html'
-        }, function (tabs) {
-            tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, { action: "stop_capture" }).catch(() => { });
-                // Give it a moment to release, then close
-                setTimeout(() => chrome.tabs.remove(tab.id), 200);
-            });
-        });
+    // --- Shared Request Logic ---
+    function makeQuestionsRequest(payload, btnElement, errElement, originalBtnText) {
+        chrome.runtime.sendMessage({ action: "generate_questions", payload: payload }, (response) => {
+            if (response && response.success) {
+                questionsQueue = flattenQuestions(response.data.questions);
+                currentIndex = 0;
+                
+                chrome.storage.local.set({ 
+                    interviewQuestions: questionsQueue,
+                    currentIndex: currentIndex
+                });
+                
+                showInterviewView();
+                
+                // Reset button background state
+                btnElement.disabled = false;
+                btnElement.innerText = originalBtnText;
 
-        isMicCapturing = false;
-        captureMicBtn.innerText = "🎤 Capture Mic Audio";
-        document.getElementById("mic-status").innerText = "Stopped.";
+            } else {
+                showError(errElement, "Failed to generate questions: " + (response ? response.error : "Backend unavailable. Is uvicorn running?"));
+                btnElement.disabled = false;
+                btnElement.innerText = originalBtnText;
+            }
+        });
     }
 
-    sendClaimBtn.addEventListener("click", () => {
-        const claimText = manualClaimInput.value.trim();
-        if (!claimText) return alert("Please enter a claim to test");
-
-        // Send the text exactly as the audio transcript chunks would be sent
-        chrome.runtime.sendMessage({ action: "audio_data", data: claimText });
-
-        // Show feedback in UI
-        document.getElementById("ai-insights").innerText = "Sent: " + claimText + "\nWaiting for backend...";
-        manualClaimInput.value = "";
-    });
-
-    // Listen for messages from background (WS events) and audio_capture tab (status)
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        if (request.type === "ws_status") {
-            updateWsDot(request.connected);
-        } else if (request.type === "insight") {
-            document.getElementById("ai-insights").innerText = request.message || "Insight received.";
-            document.getElementById("follow-up-question").innerText = request.follow_up || "None";
-        } else if (request.type === "heartbeat") {
-            const insightBox = document.getElementById("ai-insights");
-            if (insightBox.innerText.includes("Waiting for backend...")) {
-                insightBox.innerText = insightBox.innerText.replace("Waiting for backend...", "Processed (No actionable claims detected).");
-            }
-        } else if (request.type === "mic_status") {
-            // Status updates from audio_capture.js
-            document.getElementById("mic-status").innerText = request.message || "";
-        }
-    });
-
-    function updateWsDot(isConnected) {
-        if (isConnected) {
-            wsStatusDot.classList.add("active");
-            wsStatusDot.title = "Connected";
+    // --- Flashcard Navigation ---
+    nextBtn.addEventListener("click", () => {
+        if (currentIndex < questionsQueue.length - 1) {
+            currentIndex++;
+            followUpContext = [];
+            clearFollowUpStack();
+            chrome.storage.local.set({ currentIndex: currentIndex });
+            renderCurrentQuestion();
         } else {
-            wsStatusDot.classList.remove("active");
-            wsStatusDot.title = "Disconnected";
+            nextBtn.disabled = true;
+            nextBtn.innerText = "No More Questions";
         }
+    });
+
+    // --- Follow-up Question ---
+    followupBtn.addEventListener("click", () => {
+        if (!questionsQueue.length || currentIndex >= questionsQueue.length) return;
+        const q = questionsQueue[currentIndex];
+        const context = followUpContext.join(" ");
+        followupBtn.disabled = true;
+        followupBtn.innerText = "Generating...";
+        chrome.runtime.sendMessage({
+            action: "generate_followup",
+            current_question: q.question,
+            candidate_context: context
+        }, (response) => {
+            followupBtn.disabled = false;
+            followupBtn.innerText = "Generate Follow-up Question";
+            if (response && response.success && response.follow_up_question) {
+                followUpContext.push(response.follow_up_question);
+                appendFollowUpToStack(response.follow_up_question);
+            } else {
+                const msg = response && response.error ? response.error : "Failed to generate follow-up.";
+                appendFollowUpToStack("Error: " + msg, true);
+            }
+        });
+    });
+
+    resetBtn.addEventListener("click", () => {
+        chrome.storage.local.remove(["interviewQuestions", "currentIndex"]);
+        questionsQueue = [];
+        currentIndex = 0;
+        followUpContext = [];
+        clearFollowUpStack();
+        
+        nextBtn.disabled = false;
+        nextBtn.innerText = "Next Question";
+        
+        setupContainer.style.display = "block";
+        interviewView.style.display = "none";
+    });
+
+    // --- Helper Functions ---
+    function showInterviewView() {
+        setupContainer.style.display = "none";
+        interviewView.style.display = "block";
+        renderCurrentQuestion();
+    }
+
+    function renderCurrentQuestion() {
+        if (!questionsQueue || questionsQueue.length === 0) return;
+        
+        const q = questionsQueue[currentIndex];
+        
+        document.getElementById("q-counter").innerText = `Question ${currentIndex + 1} of ${questionsQueue.length}`;
+        document.getElementById("q-category").innerText = q.category.replace("_", " ");
+        document.getElementById("q-text").innerText = q.question;
+        document.getElementById("q-reasoning").innerText = q.reasoning;
+        
+        if (currentIndex >= questionsQueue.length - 1) {
+            nextBtn.disabled = true;
+            nextBtn.innerText = "End of Questions";
+        }
+    }
+
+    function clearFollowUpStack() {
+        if (followupStackEl) followupStackEl.innerHTML = "";
+    }
+
+    function appendFollowUpToStack(text, isError) {
+        if (!followupStackEl) return;
+        const div = document.createElement("div");
+        div.className = "followup-item";
+        div.innerHTML = (isError ? "" : "<strong>Follow-up</strong><br>") + text;
+        followupStackEl.appendChild(div);
+    }
+
+    function flattenQuestions(questionsObj) {
+        let flat = [];
+        for (const [category, arr] of Object.entries(questionsObj)) {
+            arr.forEach(q => {
+                flat.push({
+                    category: category,
+                    question: q.question,
+                    reasoning: q.reasoning
+                });
+            });
+        }
+        return flat;
+    }
+
+    function showError(errElement, msg) {
+        errElement.innerText = msg;
+        errElement.style.display = "block";
     }
 });
