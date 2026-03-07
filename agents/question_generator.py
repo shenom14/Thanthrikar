@@ -42,14 +42,14 @@ The candidate just made this statement: "{claim}"
 Based on background verification, we found the following AI Insight:
 "{insight_context}"
 
-If this insight suggests an exaggeration, falsehood, or point of confusion, generate a polite but probing follow-up question for the interviewer to ask.
-If the insight confirms everything is perfectly fine, return null for the question.
+If this insight suggests an exaggeration, falsehood, or point of confusion, generate a polite but probing follow-up question to dig deeper.
+If the insight confirms everything is perfectly fine, you should STILL generate a natural, engaging follow-up question to keep the conversation flowing and show interest. Only return null if the topic is completely exhausted.
 
 {format_instructions}""",
             input_variables=["claim", "insight_context"],
             partial_variables={"format_instructions": self.parser.get_format_instructions()}
         )
-        self.follow_up_chain = self.follow_up_prompt | ChatGroq(model_name=llm_model, temperature=0.2) | self.parser
+        self.follow_up_chain = self.follow_up_prompt | ChatGroq(model_name=llm_model, temperature=0.5) | self.parser
 
     async def generate_initial_questions(self, role: str, experience: str, resume_summary: str, count: int = 5) -> List[str]:
         logger.info(f"Generating {count} initial questions for {role}...")
@@ -80,8 +80,8 @@ If the insight confirms everything is perfectly fine, return null for the questi
         elif fact_check_result and not fact_check_result.get("is_correct", True):
             insight_context = f"Fact check failed: {fact_check_result.get('explanation')}"
         else:
-            logger.debug("No negative insight detected. Skipping follow-up.")
-            return None
+            insight_context = "All claims appear verified and correct. Suggest a natural follow-up question to keep the conversation engaging."
+            logger.debug("Positive insight detected. Requesting proactive follow-up.")
             
         try:
             result = await self.follow_up_chain.ainvoke({

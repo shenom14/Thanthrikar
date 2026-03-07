@@ -83,16 +83,13 @@ async def interview_stream(websocket: WebSocket, session_id: int):
 
     db = SessionLocal()
     
-    # Each WebSocket gets its own independent speech recognizer state tracker
-    recognizer = transcriber_service.create_recognizer() if transcriber_service.enabled else None
-
-    # Async buffer to prevent Vosk from blocking websocket.receive()
+    # Async buffer to prevent websocket block
     audio_buffer = bytearray()
     is_transcribing = False
 
     async def process_audio_buffer():
         nonlocal audio_buffer, is_transcribing
-        if not recognizer or not audio_buffer or is_transcribing:
+        if not audio_buffer or is_transcribing:
             return
             
         is_transcribing = True
@@ -101,13 +98,15 @@ async def interview_stream(websocket: WebSocket, session_id: int):
             chunk_to_process = bytes(audio_buffer)
             audio_buffer.clear()
             
-            loop = asyncio.get_running_loop()
-            text_chunk = await loop.run_in_executor(
-                None, transcriber_service.process_chunk, recognizer, chunk_to_process
-            )
+            # Use AsyncGroq directly
+            text_chunk = await transcriber_service.process_chunk(audio_data=chunk_to_process)
             
             if text_chunk:
                 logger.debug(f"Processing transcript chunk for session {session_id} length: {len(text_chunk)}")
+                
+                # Emit live transcript to the UI instantly
+                await websocket.send_json({"type": "transcript", "text": text_chunk})
+                
                 messages = await streaming_pipeline.handle_transcript_chunk(
                     db=db, session_id=session_id, transcript_chunk=text_chunk
                 )

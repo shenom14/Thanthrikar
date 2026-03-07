@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === "audio_data") {
-        sendAudioToWebSocket(request.data);
+        sendAudioToWebSocket(request.data, request.isAudio !== false);
     }
 
     if (request.action === "get_status") {
@@ -101,7 +101,7 @@ function connectWebSocket() {
         // Flush any queued audio data
         while (audioQueue.length > 0) {
             let queued = audioQueue.shift();
-            sendRawToSocket(queued);
+            sendRawToSocket(queued.data, queued.isAudio);
         }
     };
 
@@ -151,31 +151,43 @@ function handleReconnect() {
 /**
  * Converts an audio data payload to an ArrayBuffer and sends it over the WebSocket.
  * 
- * audio_capture.js sends Int16Array data serialized as a plain JS Array (because 
- * chrome.runtime.sendMessage cannot transfer typed arrays directly). We reconstruct
- * the Int16Array and send the underlying ArrayBuffer as a binary WebSocket frame.
+ * audio_capture.js sends compressed webm audio as a Base64 string.
+ * We decode the Base64 string into an ArrayBuffer and send it as a binary WebSocket frame.
  * 
  * Plain string data (e.g. from the manual claim input) is sent as a text frame.
  */
-function sendAudioToWebSocket(audioData) {
+function sendAudioToWebSocket(data, isAudio = true) {
     if (socket && socket.readyState === WebSocket.OPEN) {
-        sendRawToSocket(audioData);
+        sendRawToSocket(data, isAudio);
     } else {
         // Queue data if the connection is dropped to prevent data loss
-        audioQueue.push(audioData);
+        audioQueue.push({ data, isAudio });
     }
 }
 
-function sendRawToSocket(data) {
+function base64ToArrayBuffer(base64) {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+function sendRawToSocket(data, isAudio = true) {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
-    if (typeof data === "string") {
-        // Text data (manual claims or transcript text)
+    if (isAudio && typeof data === "string") {
+        try {
+            // Compressed webm audio blob as base64 string
+            const buffer = base64ToArrayBuffer(data);
+            socket.send(buffer);
+        } catch (e) {
+            console.error("Failed to decode base64 audio", e);
+        }
+    } else if (typeof data === "string") {
+        // Text data (manual claims)
         socket.send(data);
-    } else if (Array.isArray(data)) {
-        // Int16Array data from audio_capture.js, serialized as plain Array
-        const int16 = new Int16Array(data);
-        socket.send(int16.buffer);
     }
 }
 

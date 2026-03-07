@@ -1,40 +1,33 @@
-let audioContext = null;
 let mediaStream = null;
-let scriptProcessor = null;
+let mediaRecorder = null;
 
 async function startCapture() {
     try {
-        // Notify popup that we're requesting mic permission
         chrome.runtime.sendMessage({ type: "mic_status", message: "Requesting microphone access..." }).catch(() => { });
 
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        // Vosk requires 16000Hz sampling rate
-        audioContext = new AudioContext({ sampleRate: 16000 });
-        const source = audioContext.createMediaStreamSource(mediaStream);
+        // Use modern MediaRecorder for highly efficient compressed audio (webm)
+        mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
 
-        // Use ScriptProcessorNode (works in extension pages without CSP issues).
-        const bufferSize = 4096;
-        scriptProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
-
-        scriptProcessor.onaudioprocess = (event) => {
-            const float32Data = event.inputBuffer.getChannelData(0);
-            const int16Data = new Int16Array(float32Data.length);
-
-            // Convert Float32 [-1.0, 1.0] to Int16 [-32768, 32767]
-            for (let i = 0; i < float32Data.length; i++) {
-                let s = Math.max(-1, Math.min(1, float32Data[i]));
-                int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                // Convert the compressed Blob context to a Base64 string to send to the background
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    // Extract just the base64 payload part: "data:audio/webm;base64,....." -> "....."
+                    const base64Data = reader.result.split(',')[1];
+                    chrome.runtime.sendMessage({ action: "audio_data", data: base64Data });
+                };
+                reader.readAsDataURL(event.data);
             }
-
-            // Serialize as plain JS Array (chrome.runtime.sendMessage can't transfer typed arrays)
-            chrome.runtime.sendMessage({ action: "audio_data", data: Array.from(int16Data) });
         };
 
-        source.connect(scriptProcessor);
-        scriptProcessor.connect(audioContext.destination);
+        // Capture chunks every 4000 milliseconds (4 seconds)
+        // This gives Groq Whisper a solid sentence to transcribe at a time.
+        mediaRecorder.start(4000);
 
-        document.getElementById("status").innerText = "Microphone is captured and streaming to Vosk...";
+        document.getElementById("status").innerText = "Microphone is captured and streaming to Groq Whisper...";
         chrome.runtime.sendMessage({ type: "mic_status", message: "Microphone active - streaming audio to backend..." }).catch(() => { });
 
     } catch (e) {
@@ -46,13 +39,9 @@ async function startCapture() {
 }
 
 function stopCapture() {
-    if (scriptProcessor) {
-        scriptProcessor.disconnect();
-        scriptProcessor = null;
-    }
-    if (audioContext) {
-        audioContext.close().catch(() => { });
-        audioContext = null;
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+        mediaRecorder = null;
     }
     if (mediaStream) {
         mediaStream.getTracks().forEach(t => t.stop());
@@ -62,10 +51,8 @@ function stopCapture() {
     chrome.runtime.sendMessage({ type: "mic_status", message: "Microphone stopped." }).catch(() => { });
 }
 
-// Start capture once loaded
 window.addEventListener('load', startCapture);
 
-// Listen for stop commands from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "stop_capture") {
         stopCapture();

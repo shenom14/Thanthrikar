@@ -103,7 +103,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!claimText) return alert("Please enter a claim to test");
 
         // Send the text exactly as the audio transcript chunks would be sent
-        chrome.runtime.sendMessage({ action: "audio_data", data: claimText });
+        chrome.runtime.sendMessage({ action: "audio_data", data: claimText, isAudio: false });
 
         // Show feedback in UI
         document.getElementById("ai-insights").innerText = "Sent: " + claimText + "\nWaiting for backend...";
@@ -114,6 +114,10 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === "ws_status") {
             updateWsDot(request.connected);
+        } else if (request.type === "transcript") {
+            const tBox = document.getElementById("live-transcript");
+            if (tBox.innerText.includes("Start speaking...")) tBox.innerText = "";
+            tBox.innerText += " " + request.text;
         } else if (request.type === "insight") {
             document.getElementById("ai-insights").innerText = request.message || "Insight received.";
             document.getElementById("follow-up-question").innerText = request.follow_up || "None";
