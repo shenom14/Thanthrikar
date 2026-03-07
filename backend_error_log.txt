@@ -1,0 +1,118 @@
+﻿2026-03-07 12:34:27 - [INFO] - __main__ - Database instantiated successfully.
+python : D:\hackus\Tha
+nthrikar\backend\api.p
+y:53: 
+DeprecationWarning: 
+At line:1 char:1
++ python -m 
+backend.api 2>&1 | 
+Out-File -FilePath 
+backend_error_log.txt 
+...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (D:\hackus\   
+ Thant...cationWar    
+ning: :String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+        on_event is 
+deprecated, use 
+lifespan event 
+handlers instead.
+
+        Read more 
+about it in the
+        [FastAPI docs 
+for Lifespan Events](h
+ttps://fastapi.tiangol
+o.com/advanced/events/
+).
+        
+  @app.on_event("start
+up")
+2026-03-07 12:34:27 - [INFO] - __main__ - Starting uvicorn server for AI Interview Copilot in development mode.
+INFO:     Will watch 
+for changes in these 
+directories: ['D:\\hac
+kus\\Thanthrikar']
+INFO:     Uvicorn 
+running on 
+http://0.0.0.0:8001 
+(Press CTRL+C to quit)
+INFO:     Started 
+reloader process 
+[54220] using 
+WatchFiles
+2026-03-07 12:34:41 - [INFO] - __mp_main__ - Database instantiated successfully.
+2026-03-07 12:34:41 - [INFO] - backend.api - Database instantiated successfully.
+INFO:     Started 
+server process [36172]
+INFO:     Waiting for 
+application startup.
+2026-03-07 12:34:41 - [INFO] - backend.api - Background AI pipeline warm-up task started.
+2026-03-07 12:34:41 - [INFO] - services.streaming_pipeline - Lazy-initializing StreamingPipeline with LLM-backed agents...
+2026-03-07 12:34:41 - [INFO] - rag.embeddings - Attempting load of Embedding Model: all-MiniLM-L6-v2 within 15s timeout.
+2026-03-07 12:34:41 - [INFO] - agents.planner - Initializing PlannerAgent with model: llama-3.1-70b-versatile
+2026-03-07 12:34:41 - [INFO] - agents.verifier - Initializing ResumeVerifierAgent with model: llama-3.1-70b-versatile
+2026-03-07 12:34:41 - [INFO] - agents.fact_checker - Initializing FactCheckerAgent with model: llama-3.1-70b-versatile
+2026-03-07 12:34:41 - [INFO] - agents.question_generator - Initializing QuestionGeneratorAgent with model: llama-3.1-70b-versatile
+INFO:     Application 
+startup complete.
+Warning: You are 
+sending 
+unauthenticated 
+requests to the HF 
+Hub. Please set a 
+HF_TOKEN to enable 
+higher rate limits 
+and faster downloads.
+
+Loading weights:   
+0%|          | 0/103 
+[00:00<?, ?it/s]
+Loading weights: 
+100%|##########| 
+103/103 [00:00<00:00, 
+4839.08it/s]
+[1mBertModel LOAD 
+REPORT[0m from: sente
+nce-transformers/all-M
+iniLM-L6-v2
+Key                   
+  | Status     |  | 
+----------------------
+--+------------+--+-
+embeddings.position_id
+s | UNEXPECTED |  | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can 
+be ignored when 
+loading from 
+different 
+task/architecture; 
+not ok if you expect 
+identical arch.[0m
+2026-03-07 12:34:48 - [INFO] - rag.embeddings - Embedding Model loaded successfully.
+Could not connect to ChromaDB or collection 'resumes' does not exist. Error: Collection [resumes] does not exist
+2026-03-07 12:34:48 - [INFO] - services.streaming_pipeline - StreamingPipeline LLM components loaded successfully.
+2026-03-07 12:36:59 - [INFO] - services.interview_service - Starting new interview session for candidate: rec123
+2026-03-07 12:36:59 - [INFO] - services.interview_service - Successfully started session 16
+INFO:     127.0.0.1:54877 - "POST /interviews/start HTTP/1.1" 200 OK
+INFO:     
+127.0.0.1:59679 - 
+"WebSocket /ws/intervi
+ewStream/16" 
+[accepted]
+2026-03-07 12:36:59 - [INFO] - backend.api - WebSocket client connected for session 16
+INFO:     connection 
+open
+INFO:     connection 
+closed
+2026-03-07 12:37:29 - [ERROR] - backend.api - WebSocket Session 16 Error: Cannot call "receive" once a disconnect message has been received.
