@@ -58,6 +58,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentQIndex = 0;
     let followUpHistory = [];  // [{question, response}]
     let candidateSession = {}; // Stores name, role, github_repos, jd_skills
+    let loadedCandidates = {}; // Store fetched candidates dict
+    let reportLog = [];        // Store [{question, candidate_answer_summary, evaluation, color}]
 
     // Helper: show a step and update dot indicators
     function goToStep(step) {
@@ -83,15 +85,68 @@ document.addEventListener("DOMContentLoaded", () => {
         if (el) { el.textContent = ""; el.style.display = "none"; }
     }
 
+    // ==== INIT: Fetch Candidates ====
+    async function loadCandidates() {
+        try {
+            const res = await fetch(`${API_BASE}/api/v1/jd/candidates`);
+            if (res.ok) {
+                const data = await res.json();
+                const select = document.getElementById("jd-cand-select");
+                select.innerHTML = '<option value="">-- Select a Candidate --</option>';
+                data.candidates.forEach(c => {
+                    loadedCandidates[c.id] = c;
+                    const opt = document.createElement("option");
+                    opt.value = c.id;
+                    opt.textContent = c.name + (c.role ? ` - ${c.role}` : "");
+                    select.appendChild(opt);
+                });
+            }
+        } catch (e) {
+            console.error("Failed to load candidates", e);
+            document.getElementById("jd-cand-select").innerHTML = '<option value="">Network Error: Cannot load candidates</option>';
+        }
+    }
+
+    loadCandidates();
+
+    document.getElementById("jd-cand-select").addEventListener("change", (e) => {
+        const cid = e.target.value;
+        const detailBox = document.getElementById("jd-cand-details");
+        if (!cid) {
+            detailBox.style.display = "none";
+            return;
+        }
+        const c = loadedCandidates[cid];
+        if (c) {
+            detailBox.innerHTML = `
+                <strong>${c.name}</strong><br/>
+                Experience: ${c.experience || "Unknown"}<br/>
+                Role: ${c.role || "Unknown"}<br/>
+            `;
+            detailBox.style.display = "block";
+
+            // Auto complete role if available and not yet set
+            const roleSelect = document.getElementById("jd-role-select");
+            if (roleSelect.value === "" && c.role) {
+                Array.from(roleSelect.options).forEach(opt => {
+                    if (opt.value.toLowerCase().includes(c.role.toLowerCase())) {
+                        roleSelect.value = opt.value;
+                    }
+                });
+            }
+        }
+    });
+
     // ==== STEP 1: Generate JD from role ====
     document.getElementById("jd-step1-next").addEventListener("click", async () => {
         const role = document.getElementById("jd-role-select").value.trim();
-        const name = document.getElementById("jd-cand-name").value.trim();
-        const exp = document.getElementById("jd-cand-exp").value.trim();
+        const cid = document.getElementById("jd-cand-select").value;
 
         if (!role) return showMsg("jd-step1-error", "Please select a job role.", true);
-        if (!name) return showMsg("jd-step1-error", "Candidate name is required.", true);
+        if (!cid) return showMsg("jd-step1-error", "Please select a candidate.", true);
         hideMsg("jd-step1-error");
+
+        const candData = loadedCandidates[cid] || {};
 
         const btn = document.getElementById("jd-step1-next");
         btn.disabled = true;
@@ -110,11 +165,11 @@ document.addEventListener("DOMContentLoaded", () => {
             // Store candidate session data for later
             candidateSession = {
                 role,
-                name,
-                years_experience: exp || "3",
-                linkedin_url: parseLinkedInUrl(document.getElementById("jd-cand-linkedin").value) || null,
-                github_username: parseGitHubUsername(document.getElementById("jd-cand-github").value) || null,
-                resume_text: document.getElementById("jd-cand-resume").value.trim() || ""
+                name: candData.name || "Unknown",
+                years_experience: candData.experience || "3",
+                linkedin_url: null,
+                github_username: null,
+                resume_text: candData.resume_file || "" // Resume text ideally comes from backend passing parsed content, fallback to string path or mock
             };
 
             hideMsg("jd-step1-status");
@@ -211,6 +266,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             currentQIndex = 0;
             followUpHistory = [];
+            reportLog = [];
 
             hideMsg("jd-step2-status");
             goToStep(3);
@@ -238,6 +294,20 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("q-text").textContent = q.question || "No question text.";
         document.getElementById("q-reasoning").textContent = "Goal: " + (q.reasoning || "Probe candidate's depth of knowledge.");
 
+        // Manage Answer display
+        const ansBtn = document.getElementById("toggle-answer-btn");
+        const ansDiv = document.getElementById("q-answer");
+        ansBtn.textContent = "Show Answer ▼";
+        ansDiv.style.display = "none";
+        ansDiv.textContent = q.recommended_answer || "No answer provided.";
+
+        // Manage Evaluation Display
+        const evalDiv = document.getElementById("evaluation-container");
+        evalDiv.style.display = "block"; // Always show during a question
+
+        // Reset inputs
+        document.getElementById("interviewer-notes").value = "";
+
         // Reset follow-up UI
         document.getElementById("followup-stack").innerHTML = "";
         followUpHistory = [];
@@ -253,6 +323,69 @@ document.addEventListener("DOMContentLoaded", () => {
             nextBtn.classList.remove("btn-secondary");
         }
     }
+
+    // Answer Reveal
+    document.getElementById("toggle-answer-btn").addEventListener("click", () => {
+        const ansDiv = document.getElementById("q-answer");
+        const btn = document.getElementById("toggle-answer-btn");
+        if (ansDiv.style.display === "none") {
+            ansDiv.style.display = "block";
+            btn.textContent = "Hide Answer ▲";
+        } else {
+            ansDiv.style.display = "none";
+            btn.textContent = "Show Answer ▼";
+        }
+    });
+
+    // Evaluation Logging
+    document.querySelectorAll(".eval-btn").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+            const result = e.target.dataset.result;
+            const color = e.target.dataset.color;
+            const qtext = document.getElementById("q-text").textContent;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/jd/evaluation`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        questionText: qtext,
+                        evaluationResult: result,
+                        colorRating: color
+                    })
+                });
+                if (res.ok) {
+                    // Save locally for report compilation
+                    const notes = document.getElementById("interviewer-notes").value.trim() || "(No summary provided)";
+
+                    // See if we already stored an eval for this question index. Overwrite if we did.
+                    const existingIdx = reportLog.findIndex(r => r.qIndex === currentQIndex);
+                    const logEntry = {
+                        qIndex: currentQIndex,
+                        question: qtext,
+                        candidate_answer_summary: notes,
+                        evaluation: result,
+                        color: color
+                    };
+
+                    if (existingIdx !== -1) {
+                        reportLog[existingIdx] = logEntry;
+                    } else {
+                        reportLog.push(logEntry);
+                    }
+
+                    // Flash success
+                    const originalText = e.target.textContent;
+                    e.target.textContent = "✔ Saved!";
+                    setTimeout(() => e.target.textContent = originalText, 1000);
+                } else {
+                    console.error("Failed to save evaluation");
+                }
+            } catch (err) {
+                console.error("Network error on evaluation", err);
+            }
+        });
+    });
 
     // Next Question
     document.getElementById("next-btn").addEventListener("click", () => {
@@ -322,20 +455,100 @@ document.addEventListener("DOMContentLoaded", () => {
         questionsQueue = [];
         currentQIndex = 0;
         followUpHistory = [];
+        reportLog = [];
         jdData = null;
         skillWeights = {};
         candidateSession = {};
 
         // Clear form fields
         document.getElementById("jd-role-select").value = "";
-        document.getElementById("jd-cand-name").value = "";
-        document.getElementById("jd-cand-exp").value = "";
-        document.getElementById("jd-cand-linkedin").value = "";
-        document.getElementById("jd-cand-github").value = "";
-        document.getElementById("jd-cand-resume").value = "";
+        document.getElementById("jd-cand-select").value = "";
+        document.getElementById("jd-cand-details").style.display = "none";
         document.getElementById("jd-skills-list").innerHTML = "";
+        document.getElementById("interviewer-notes").value = "";
+        hideMsg("report-status");
 
         goToStep(1);
+    });
+
+    // End Interview & Generate Report
+    document.getElementById("end-interview-btn").addEventListener("click", async () => {
+        const btn = document.getElementById("end-interview-btn");
+        const statusEl = document.getElementById("report-status");
+        statusEl.textContent = "Compiling and analyzing interview data...";
+        statusEl.style.display = "block";
+        btn.disabled = true;
+
+        try {
+            // Strip QIndex for backend parsing
+            const cleanLog = reportLog.map(l => ({
+                question: l.question,
+                candidate_answer_summary: l.candidate_answer_summary,
+                evaluation: l.evaluation,
+                color: l.color
+            }));
+
+            const payload = {
+                candidate_name: candidateSession.name,
+                role: candidateSession.role,
+                skills: candidateSession.jd_skills || [],
+                experience: candidateSession.years_experience + " years",
+                achievements: (candidateSession.github_repositories || []).map(r => r.name).join(", ") || "None",
+                interview_log: cleanLog
+            };
+
+            const res = await fetch(`${API_BASE}/api/v1/jd/generate-summary`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error("Server error during AI summary compilation");
+            const summary = await res.json();
+
+            // Build Plain Text Report
+            let report = `Candidate Name: ${payload.candidate_name}\n\n`;
+            report += `Skills:\n${payload.skills.join(", ")}\n\n`;
+            report += `Experience:\n${payload.experience}\n\n`;
+            report += `Achievements:\n${payload.achievements}\n\n`;
+            report += `Interview Questions:\n\n`;
+
+            cleanLog.forEach((log, i) => {
+                report += `${i + 1}. ${log.question}\n\n`;
+                report += `Candidate Answer Summary:\n${log.candidate_answer_summary}\n\n`;
+                // Format evaluation to Title Case
+                const evalText = log.evaluation.charAt(0).toUpperCase() + log.evaluation.slice(1);
+                report += `Evaluation:\n${evalText}\n\n`;
+            });
+
+            report += `---\n\nAI Interview Summary:\n\n`;
+            report += `Strengths:\n${summary.strengths}\n\n`;
+            report += `Weaknesses:\n${summary.weaknesses}\n\n`;
+            report += `Recommendation:\n${summary.hiring_recommendation}\n`;
+
+            // Trigger Download
+            const blob = new Blob([report], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            const safeName = payload.candidate_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            a.download = `interview_report_${safeName}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            statusEl.textContent = "✔ Report downloaded successfully.";
+            statusEl.style.color = "#34d399";
+            statusEl.style.borderColor = "#10b981";
+            statusEl.style.background = "#022c22";
+
+        } catch (e) {
+            statusEl.textContent = "Error compiling report: " + e.message;
+            statusEl.style.color = "#f87171";
+            statusEl.style.borderColor = "#dc2626";
+            statusEl.style.background = "#1c0000";
+        } finally {
+            btn.disabled = false;
+        }
     });
 
     // ============================================================
@@ -396,7 +609,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function stopAudioCapture() {
         chrome.tabs.query({ url: "chrome-extension://" + chrome.runtime.id + "/audio_capture.html" }, (tabs) => {
             tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, { action: "stop_capture" }).catch(() => {});
+                chrome.tabs.sendMessage(tab.id, { action: "stop_capture" }).catch(() => { });
                 setTimeout(() => chrome.tabs.remove(tab.id), 200);
             });
         });

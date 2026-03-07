@@ -52,7 +52,8 @@ Distribute the {total_questions} questions across these categories:
 - github_project_questions
 
 Return a JSON object with these category keys, each mapping to a list of question objects.
-Each question object must have: "question", "jd_skill", "candidate_skill", "difficulty", "evaluation_goal".
+Each question object must have: "question", "jd_skill", "candidate_skill", "difficulty", "evaluation_goal", "recommended_answer".
+The "recommended_answer" should be a high-quality, comprehensive expected answer (3-5 sentences).
 """
 
         try:
@@ -90,7 +91,8 @@ Each question object must have: "question", "jd_skill", "candidate_skill", "diff
                             jd_skill=q.get("jd_skill"),
                             candidate_skill=q.get("candidate_skill"),
                             difficulty=q.get("difficulty", difficulty),
-                            evaluation_goal=q.get("evaluation_goal", "Assess candidate knowledge")
+                            evaluation_goal=q.get("evaluation_goal", "Assess candidate knowledge"),
+                            recommended_answer=q.get("recommended_answer", "No answer provided by AI model.")
                         ))
                 return result
 

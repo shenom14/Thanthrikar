@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config.logger import setup_logger
-from backend.schemas_jd import CandidateProfile, QuestionMetadata
+from backend.schemas_jd import CandidateProfile, QuestionMetadata, EvaluationRequest, SummaryRequest
 
 logger = setup_logger(__name__)
 
@@ -37,6 +37,60 @@ class JDFollowUpRequest(BaseModel):
     follow_up_history: list = []
 
 # --- Route Handlers ---
+
+@router.get("/candidates")
+async def get_all_candidates():
+    from airtable.candidate_loader import CandidateLoader
+    try:
+        loader = CandidateLoader()
+        candidates = loader.fetch_all_candidates()
+        
+        # Transform dict into list with IDs for frontend
+        candidate_list = []
+        for cid, data in candidates.items():
+            candidate_list.append({
+                "id": cid,
+                **data
+            })
+            
+        return {"candidates": candidate_list}
+    except Exception as e:
+        logger.error(f"Failed to fetch candidates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/evaluation")
+async def post_evaluation(request: EvaluationRequest):
+    from backend.database import SessionLocal
+    from backend.models import EvaluationLog
+    db = SessionLocal()
+    try:
+        new_log = EvaluationLog(
+            question_text=request.questionText,
+            evaluation_result=request.evaluationResult,
+            color_rating=request.colorRating
+        )
+        db.add(new_log)
+        db.commit()
+        db.refresh(new_log)
+        return {"status": "success", "id": new_log.id}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save evaluation log: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@router.post("/generate-summary")
+async def api_jd_generate_summary(request: SummaryRequest):
+    """Generate final AI summary based on collected interview log."""
+    from agents.interview_summarizer import InterviewSummarizerAgent
+    try:
+        summarizer = InterviewSummarizerAgent()
+        result = await summarizer.generate_summary(request)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to generate summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/generate-jd")
 async def api_jd_generate(request: JDGenerateRequest):
@@ -105,7 +159,8 @@ async def api_jd_generate_questions(request: JDQuestionRequest):
                     "question": q.question,
                     "reasoning": q.evaluation_goal,
                     "jd_skill": q.jd_skill or "",
-                    "difficulty": q.difficulty
+                    "difficulty": q.difficulty,
+                    "recommended_answer": q.recommended_answer or "No answer provided by AI model."
                 })
 
         return {

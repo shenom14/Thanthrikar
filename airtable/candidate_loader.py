@@ -62,6 +62,27 @@ class CandidateLoader:
         logger.info(f"Successfully loaded candidate data for {candidate_id}")
         return candidate_data
 
+    def fetch_all_candidates(self) -> Dict[str, Any]:
+        """
+        Fetch all candidate records.
+        """
+        logger.info("Fetching all candidates...")
+        
+        if self.use_airtable:
+            # Requires AIRTABLE_API_KEY
+            logger.error("Airtable API integration is toggled on but not fully implemented.")
+            raise NotImplementedError("Airtable API integration not fully implemented.")
+            
+        self._ensure_local_db()
+        try:
+            with open(self.local_db_path, "r") as f:
+                candidates = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load candidate DB: {e}")
+            candidates = {}
+            
+        return candidates
+
     def download_resume(self, url: str, destination_path: str) -> bool:
         """
         Helper method to copy or download a resume file.

@@ -19,6 +19,26 @@ class QuestionMetadata(BaseModel):
     candidate_skill: Optional[str] = None
     difficulty: str
     evaluation_goal: str
+    recommended_answer: Optional[str] = None
+
+class EvaluationRequest(BaseModel):
+    questionText: str
+    evaluationResult: str
+    colorRating: str
+
+class QALog(BaseModel):
+    question: str
+    candidate_answer_summary: str
+    evaluation: str
+    color: str
+
+class SummaryRequest(BaseModel):
+    candidate_name: str
+    role: str
+    skills: list[str]
+    experience: str
+    achievements: str
+    interview_log: list[QALog]
 
 class QuestionCategory(BaseModel):
     technical_questions: List[QuestionMetadata] = Field(default_factory=list)

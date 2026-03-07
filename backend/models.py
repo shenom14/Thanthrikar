@@ -40,3 +40,12 @@ class Insight(Base):
     follow_up_suggested = Column(String, nullable=True)
 
     session = relationship("InterviewSession", back_populates="insights")
+
+class EvaluationLog(Base):
+    __tablename__ = "evaluation_logs"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    question_text = Column(String)
+    evaluation_result = Column(String) # correct, partial, incorrect
+    color_rating = Column(String) # green, yellow, red
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
