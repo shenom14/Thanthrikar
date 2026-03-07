@@ -1,11 +1,23 @@
 import re
-import pdfplumber
 from typing import Optional, Any
+
 from config.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+try:
+    import pdfplumber  # type: ignore
+except Exception as e:  # pragma: no cover - environment-specific dependency
+    pdfplumber = None  # type: ignore
+    logger.warning(
+        "pdfplumber is not available; PDF resume parsing will be disabled. "
+        "Install 'pdfplumber' to enable full resume ingestion."
+    )
+
+
 def load_pdf(file_path: str) -> Any:
+    if pdfplumber is None:
+        raise RuntimeError("pdfplumber is not installed")
     return pdfplumber.open(file_path)
 
 def extract_text(pdf_obj: Any) -> str:

@@ -33,6 +33,7 @@ class StreamingPipeline:
         in order to avoid blocking the Uvicorn ASGI event loop during import.
         """
         import os
+
         self.llm_enabled = False
         self._init_attempted = False
         self.retriever = None
@@ -40,7 +41,10 @@ class StreamingPipeline:
         self.verifier = None
         self.fact_checker = None
         self.qgen = None
-        
+
+        # Track which backend we're using for LLMs.
+        self.llm_backend = getattr(settings, "LLM_BACKEND", "ollama").lower()
+
         # Prefer explicit GROQ_API_KEY from env; fall back to settings value.
         self.groq_key = os.getenv("GROQ_API_KEY") or settings.GROQ_API_KEY
         if self.groq_key:
@@ -51,10 +55,12 @@ class StreamingPipeline:
             return
         self._init_attempted = True
 
-        if not self.groq_key:
+        # For Groq backend we require a key; for Ollama we do not.
+        if self.llm_backend == "groq" and not self.groq_key:
             logger.warning(
-                "GROQ_API_KEY not set; StreamingPipeline will run in 'no-LLM' mode. "
-                "Insights will be stored as raw transcript snippets without verification."
+                "GROQ_API_KEY not set while LLM_BACKEND='groq'; "
+                "StreamingPipeline will run in 'no-LLM' mode. "
+                "Set GROQ_API_KEY or switch LLM_BACKEND to 'ollama' to enable insights."
             )
             return
 

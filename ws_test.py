@@ -4,7 +4,8 @@ import websockets
 import json
 import requests
 
-async def test():
+
+async def run_ws_smoke_test():
     print("Starting session...")
     try:
         res = requests.post("http://127.0.0.1:8000/interviews/start", json={"candidate_id": "rec123"}, timeout=10)
@@ -31,5 +32,7 @@ async def test():
     except Exception as e:
         print(f"WS Exception: {e}", file=sys.stderr)
 
+
 if __name__ == "__main__":
-    asyncio.run(test())
+    # Manual smoke test entrypoint; intentionally not collected by pytest.
+    asyncio.run(run_ws_smoke_test())

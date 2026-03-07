@@ -1,0 +1,162 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview Copilot</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            width: 350px;
+            padding: 15px;
+            background-color: #f7f9fc;
+            color: #333;
+            margin: 0;
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            color: #2c3e50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-dot {
+            height: 10px;
+            width: 10px;
+            background-color: #ccc;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.active {
+            background-color: #2ecc71;
+            box-shadow: 0 0 5px #2ecc71;
+        }
+
+        .section {
+            background-color: white;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .candidate-info {
+            font-size: 0.9rem;
+        }
+
+        .question-box {
+            font-weight: bold;
+            color: #1a5276;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        .insights {
+            font-size: 0.85rem;
+            color: #d35400;
+            min-height: 40px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #2980b9;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        button:hover {
+            background-color: #3498db;
+        }
+
+        button.danger {
+            background-color: #e74c3c;
+        }
+
+        button.danger:hover {
+            background-color: #c0392b;
+        }
+
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        input[type="text"] {
+            width: calc(100% - 16px);
+            padding: 8px;
+            margin-bottom: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>AI Copilot <span class="status-dot" id="ws-status" title="Disconnected"></span></h2>
+
+    <!-- Setup View -->
+    <div id="setup-view" class="section">
+        <label>Candidate ID (Airtable)</label>
+        <input type="text" id="candidate-id-input" placeholder="rec123abc..." />
+        <button id="start-btn">Start Interview</button>
+    </div>
+
+    <!-- Active Interview View (Hidden initially) -->
+    <div id="active-view" style="display: none;">
+        <div class="section candidate-info">
+            <strong>Candidate ID:</strong> <span id="candidate-id-display">...</span><br />
+            <strong>Session ID:</strong> <span id="session-id-display">...</span>
+        </div>
+
+        <div class="section">
+            <label><strong>Mic Status:</strong></label>
+            <div class="insights" id="mic-status">Waiting for audio...</div>
+            <button id="capture-mic-btn">Capture Mic Audio</button>
+        </div>
+
+        <div class="section">
+            <label><strong>Manual Testing:</strong></label>
+            <input type="text" id="manual-claim-input" placeholder="E.g. I migrated 10M rows to AWS" />
+            <button id="send-claim-btn">Send Claim to AI</button>
+        </div>
+
+        <div class="section" style="background-color: #f1f8ff; border: 1px solid #d0e8fc;">
+            <label><strong>Live Transcript:</strong></label>
+            <div class="insights" id="live-transcript" style="color: #444;">
+                <em>Start speaking...</em>
+            </div>
+        </div>
+
+        <div class="section">
+            <label><strong>AI Insights:</strong></label>
+            <div class="insights" id="ai-insights">
+                <em>Listening for claims...</em>
+            </div>
+        </div>
+
+        <div class="section">
+            <label><strong>Suggested Follow-up:</strong></label>
+            <div class="question-box" id="follow-up-question">
+                <em>None currently.</em>
+            </div>
+        </div>
+
+        <button id="end-btn" class="danger">End Interview Session</button>
+    </div>
+
+    <!-- Adding popup.js instead of reusing background.js -->
+    <script src="popup.js"></script>
+</body>
+
+</html>

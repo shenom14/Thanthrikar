@@ -1,6 +1,14 @@
-from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+
+try:
+    from pydantic import BaseModel  # type: ignore
+except Exception:  # pragma: no cover - fallback when pydantic is unavailable
+    class BaseModel:  # type: ignore
+        def __init__(self, **data):
+            for key, value in data.items():
+                setattr(self, key, value)
+
 
 class CandidateBase(BaseModel):
     id: str
