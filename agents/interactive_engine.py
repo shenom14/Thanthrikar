@@ -68,10 +68,10 @@ class InteractiveQuestionEngine:
             return self.base_questions[self.current_index]
         return None
 
-    def _sync_generate_follow_up(self, candidate_response: str) -> str:
+    def _sync_generate_follow_up(self, candidate_response: str) -> Dict[str, str]:
         base_q = self.get_current_question()
         if not base_q:
-            return "No active question to follow up on."
+            return {"question": "No active question to follow up on.", "recommended_answer": ""}
 
         history_str = ""
         for item in self.follow_up_history:
@@ -98,20 +98,40 @@ Previous conversation:
 The candidate just responded: "{candidate_response}"
 
 Generate exactly ONE follow-up question that digs deeper into the candidate's response.
-Output ONLY the question text. No prefix, no quotes, no explanation."""
+You must also provide a recommended answer or reasoning for what you are looking for in the candidate's response.
+
+Format your output exactly as follows:
+QUESTION: [Your follow-up question here]
+ANSWER: [Your recommended answer or reasoning here]
+"""
 
         result = _call_ollama(prompt)
         if result:
-            result = result.strip('"\'').strip()
-            if result.startswith(("1.", "1)", "-", "*")):
-                result = result[2:].strip()
-            return result
+            parts = result.split("ANSWER:")
+            if len(parts) == 2:
+                q_part = parts[0].replace("QUESTION:", "").strip()
+                a_part = parts[1].strip()
+                
+                # Cleanup common prefixes
+                if q_part.startswith(("1.", "1)", "-", "*")):
+                    q_part = q_part[2:].strip()
+                
+                return {"question": q_part, "recommended_answer": a_part}
+            else:
+                # Fallback if model fails to format perfectly
+                result = result.replace("QUESTION:", "").strip()
+                if result.startswith(("1.", "1)", "-", "*")):
+                    result = result[2:].strip()
+                return {"question": result, "recommended_answer": "No recommended answer provided."}
 
         self.follow_up_history.pop()  # rollback on failure
         logger.warning("Ollama unavailable for follow-up, using fallback.")
-        return "Can you expand more on the technical choices involved there?"
+        return {
+            "question": "Can you expand more on the technical choices involved there?",
+            "recommended_answer": "Evaluate candidate's ability to articulate architectural trade-offs."
+        }
 
-    async def generate_follow_up(self, candidate_response: str) -> str:
+    async def generate_follow_up(self, candidate_response: str) -> Dict[str, str]:
         import asyncio
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._sync_generate_follow_up, candidate_response)

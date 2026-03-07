@@ -200,8 +200,21 @@ async def api_jd_generate_followup(request: JDFollowUpRequest):
         engine.base_questions = [base_q]
         engine.current_index = 0
 
-        follow_up = await engine.generate_follow_up(request.candidate_response)
-        return {"follow_up_question": follow_up}
+        follow_up_data = await engine.generate_follow_up(request.candidate_response)
+        
+        # follow_up_data is now a dict: {"question": "...", "recommended_answer": "..."}
+        if isinstance(follow_up_data, dict):
+            return {
+                "follow_up_question": follow_up_data.get("question", "Could not generate follow-up."),
+                "recommended_answer": follow_up_data.get("recommended_answer", "")
+            }
+        else:
+            # Fallback if engine accidentally returned a string
+            return {
+                "follow_up_question": follow_up_data,
+                "recommended_answer": "No answer reasoning provided."
+            }
+            
     except Exception as e:
         logger.error(f"JD follow-up failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

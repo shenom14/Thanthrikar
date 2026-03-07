@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     AIRTABLE_BASE_ID: Optional[str] = None
     EXTENSION_API_KEY: Optional[str] = None
     
+    # Ollama Config
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    
     # Paths and System Settings
     ENVIRONMENT: str = "development"
     APP_NAME: str = "AI Interview Copilot"
@@ -21,11 +24,11 @@ class Settings(BaseSettings):
     DATA_DIR: str = os.path.join(BASE_DIR, "data")
     CHROMA_DB_PATH: str = os.path.join(BASE_DIR, "chroma_db")
     
-    # LLM Config — llama-3.1-70b-versatile was decommissioned by Groq on Jan 24 2025
-    PLANNER_MODEL: str = "llama-3.3-70b-versatile"
-    VERIFIER_MODEL: str = "llama-3.3-70b-versatile"
-    FACT_CHECKER_MODEL: str = "llama-3.3-70b-versatile"
-    QGEN_MODEL: str = "llama-3.3-70b-versatile"
+    # LLM Config
+    PLANNER_MODEL: str = "llama3.2"
+    VERIFIER_MODEL: str = "llama3.2"
+    FACT_CHECKER_MODEL: str = "llama3.2"
+    QGEN_MODEL: str = "llama3.2"
     
     # RAG Config
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"

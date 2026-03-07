@@ -45,15 +45,18 @@ class StreamingPipeline:
         self.groq_key = os.getenv("GROQ_API_KEY") or settings.GROQ_API_KEY
         if self.groq_key:
             os.environ["GROQ_API_KEY"] = self.groq_key
+            
+        # Check if Ollama is configured
+        self.ollama_url = settings.OLLAMA_BASE_URL
 
     async def _init_components(self):
         if self._init_attempted:
             return
         self._init_attempted = True
 
-        if not self.groq_key:
+        if not self.groq_key and not self.ollama_url:
             logger.warning(
-                "GROQ_API_KEY not set; StreamingPipeline will run in 'no-LLM' mode. "
+                "Neither GROQ_API_KEY nor OLLAMA_BASE_URL set; StreamingPipeline will run in 'no-LLM' mode. "
                 "Insights will be stored as raw transcript snippets without verification."
             )
             return

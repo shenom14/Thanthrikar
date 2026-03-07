@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
@@ -19,7 +19,7 @@ class QuestionGeneratorAgent:
     
     def __init__(self, llm_model: str = settings.QGEN_MODEL) -> None:
         logger.info(f"Initializing QuestionGeneratorAgent with model: {llm_model}")
-        self.llm = ChatGroq(model_name=llm_model, temperature=0.7)
+        self.llm = ChatOllama(model=llm_model, temperature=0.7, base_url=settings.OLLAMA_BASE_URL)
         self.parser = PydanticOutputParser(pydantic_object=FollowUpResult)
         
         self.initial_prompt = PromptTemplate(
@@ -49,7 +49,7 @@ If the insight confirms everything is perfectly fine, you should STILL generate 
             input_variables=["claim", "insight_context"],
             partial_variables={"format_instructions": self.parser.get_format_instructions()}
         )
-        self.follow_up_chain = self.follow_up_prompt | ChatGroq(model_name=llm_model, temperature=0.5) | self.parser
+        self.follow_up_chain = self.follow_up_prompt | ChatOllama(model=llm_model, temperature=0.5, base_url=settings.OLLAMA_BASE_URL) | self.parser
 
     async def generate_initial_questions(self, role: str, experience: str, resume_summary: str, count: int = 5) -> List[str]:
         logger.info(f"Generating {count} initial questions for {role}...")

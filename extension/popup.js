@@ -424,19 +424,114 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!res.ok) throw new Error(`Server error ${res.status}`);
             const data = await res.json();
             const fq = data.follow_up_question || "No follow-up generated.";
+            const recommendedAnswer = data.recommended_answer || "No answer reasoning provided.";
 
-            // Record history
+            // Record history (we still send only the question text to the backend context)
             followUpHistory.push({
                 question: fq,
                 response: "(Candidate response not yet given)"
             });
+            
+            const fIndex = followUpHistory.length;
 
             // Append to stack
             const stack = document.getElementById("followup-stack");
             const item = document.createElement("div");
             item.className = "followup-item";
-            item.innerHTML = `<div class="followup-label">Follow-Up ${followUpHistory.length}</div>${fq}`;
+            item.style.background = "#0f172a";
+            item.style.borderLeft = "3px solid #6366f1";
+            item.style.color = "#e2e8f0";
+            item.style.padding = "12px";
+            item.style.marginBottom = "10px";
+            item.style.borderRadius = "6px";
+            
+            item.innerHTML = `
+                <div class="followup-label" style="color: #818cf8; margin-bottom: 6px;">Follow-Up ${fIndex}</div>
+                <div style="font-size: 0.95rem; font-weight: 600; margin-bottom: 10px;">${fq}</div>
+                
+                <!-- Answer Reveal toggle -->
+                <button class="btn btn-outline btn-sm followup-toggle-ans" style="margin-bottom: 10px; border-color: #818cf8; color: #a5b4fc;">Show Answer ▼</button>
+                <div class="followup-answer" style="display: none; background: #1e1b4b; border-left: 3px solid #818cf8; color: #c7d2fe; font-size: 0.8rem; padding: 8px 10px; border-radius: 4px; margin-bottom: 10px;">
+                    ${recommendedAnswer}
+                </div>
+
+                <!-- Interviewer Answer Summary -->
+                <div style="margin-top: 10px; margin-bottom: 10px; padding-top: 10px; border-top: 1px solid #334155;">
+                    <label>Candidate Answer Summary (Optional):</label>
+                    <textarea class="followup-notes" rows="2" placeholder="Briefly summarize what they said..."></textarea>
+                </div>
+
+                <!-- Evaluation System -->
+                <div style="margin-top: 5px;">
+                    <label>Candidate Answer Evaluation:</label>
+                    <div style="display:flex; gap: 6px; margin-top: 5px;">
+                        <button class="btn followup-eval-btn" data-color="green" data-result="correct" style="flex:1; background:#16a34a; color:#fff;">🟢 Correct</button>
+                        <button class="btn followup-eval-btn" data-color="yellow" data-result="partial" style="flex:1; background:#ca8a04; color:#fff;">🟡 Partial</button>
+                        <button class="btn followup-eval-btn" data-color="red" data-result="incorrect" style="flex:1; background:#dc2626; color:#fff;">🔴 Incorrect</button>
+                    </div>
+                </div>
+            `;
             stack.appendChild(item);
+            
+            // Bind Answer Toggle
+            const toggleBtn = item.querySelector(".followup-toggle-ans");
+            const ansDiv = item.querySelector(".followup-answer");
+            toggleBtn.addEventListener("click", () => {
+                if (ansDiv.style.display === "none") {
+                    ansDiv.style.display = "block";
+                    toggleBtn.textContent = "Hide Answer ▲";
+                } else {
+                    ansDiv.style.display = "none";
+                    toggleBtn.textContent = "Show Answer ▼";
+                }
+            });
+
+            // Bind Evaluation Logging for Follow-up
+            item.querySelectorAll(".followup-eval-btn").forEach(btn => {
+                btn.addEventListener("click", async (e) => {
+                    const result = e.target.dataset.result;
+                    const color = e.target.dataset.color;
+                    const notes = item.querySelector(".followup-notes").value.trim() || "(No summary provided)";
+
+                    try {
+                        const res = await fetch(`${API_BASE}/api/v1/jd/evaluation`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                questionText: fq,
+                                evaluationResult: result,
+                                colorRating: color
+                            })
+                        });
+                        if (res.ok) {
+                            const existingIdx = reportLog.findIndex(r => r.type === 'follow_up' && r.parentIndex === currentQIndex && r.fIndex === fIndex);
+                            const logEntry = {
+                                type: 'follow_up',
+                                parentIndex: currentQIndex,
+                                fIndex: fIndex,
+                                question: fq,
+                                candidate_answer_summary: notes,
+                                evaluation: result,
+                                color: color
+                            };
+
+                            if (existingIdx !== -1) {
+                                reportLog[existingIdx] = logEntry;
+                            } else {
+                                reportLog.push(logEntry);
+                            }
+
+                            // Flash success
+                            const originalText = e.target.textContent;
+                            e.target.textContent = "✔ Saved!";
+                            setTimeout(() => e.target.textContent = originalText, 1000);
+                        }
+                    } catch (err) {
+                        console.error("Network error on evaluation", err);
+                    }
+                });
+            });
+
             item.scrollIntoView({ behavior: "smooth" });
 
             document.getElementById("jd-step3-error").style.display = "none";
@@ -485,7 +580,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 question: l.question,
                 candidate_answer_summary: l.candidate_answer_summary,
                 evaluation: l.evaluation,
-                color: l.color
+                color: l.color,
+                // keep tracking info for the frontend plaintext builder
+                type: l.type,
+                parentIndex: l.parentIndex,
+                fIndex: l.fIndex,
+                qIndex: l.qIndex
             }));
 
             const payload = {
@@ -494,7 +594,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 skills: candidateSession.jd_skills || [],
                 experience: candidateSession.years_experience + " years",
                 achievements: (candidateSession.github_repositories || []).map(r => r.name).join(", ") || "None",
-                interview_log: cleanLog
+                interview_log: cleanLog.map(l => ({  // Send clean schema to backend
+                    question: l.question,
+                    candidate_answer_summary: l.candidate_answer_summary,
+                    evaluation: l.evaluation,
+                    color: l.color
+                }))
             };
 
             const res = await fetch(`${API_BASE}/api/v1/jd/generate-summary`, {
@@ -513,12 +618,27 @@ document.addEventListener("DOMContentLoaded", () => {
             report += `Achievements:\n${payload.achievements}\n\n`;
             report += `Interview Questions:\n\n`;
 
-            cleanLog.forEach((log, i) => {
-                report += `${i + 1}. ${log.question}\n\n`;
+            // Group logs by parent question
+            const mainQuestions = cleanLog.filter(l => l.type !== 'follow_up');
+            const followUps = cleanLog.filter(l => l.type === 'follow_up');
+
+            mainQuestions.forEach((log, i) => {
+                report += `Question ${i + 1}\n${log.question}\n\n`;
                 report += `Candidate Answer Summary:\n${log.candidate_answer_summary}\n\n`;
-                // Format evaluation to Title Case
+                
                 const evalText = log.evaluation.charAt(0).toUpperCase() + log.evaluation.slice(1);
                 report += `Evaluation:\n${evalText}\n\n`;
+
+                // Find and interleave follow-ups for this main question
+                const childFollowUps = followUps.filter(f => f.parentIndex === log.qIndex);
+                childFollowUps.sort((a, b) => a.fIndex - b.fIndex); // Ensure chronological order
+                
+                childFollowUps.forEach(fLog => {
+                    report += `Follow-Up Question ${i + 1}.${fLog.fIndex}\n${fLog.question}\n\n`;
+                    report += `Candidate Answer Summary:\n${fLog.candidate_answer_summary}\n\n`;
+                    const fEvalText = fLog.evaluation.charAt(0).toUpperCase() + fLog.evaluation.slice(1);
+                    report += `Evaluation:\n${fEvalText}\n\n`;
+                });
             });
 
             report += `---\n\nAI Interview Summary:\n\n`;

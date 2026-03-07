@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
@@ -23,7 +23,7 @@ class PlannerAgent:
     
     def __init__(self, llm_model: str = settings.PLANNER_MODEL) -> None:
         logger.info(f"Initializing PlannerAgent with model: {llm_model}")
-        self.llm = ChatGroq(model_name=llm_model, temperature=0.0)
+        self.llm = ChatOllama(model=llm_model, temperature=0.0, base_url=settings.OLLAMA_BASE_URL)
         self.parser = PydanticOutputParser(pydantic_object=PlannerTasks)
         
         self.prompt = PromptTemplate(
