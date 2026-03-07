@@ -1,2 +1,0 @@
-﻿ 2026-03-07 05:08:53 - [INFO] - backend.api - Database instantiated successfully.
-2026-03-07 05:08:53 - [INFO] - rag.embeddings - Attempting load of Embedding Model: all-MiniLM-L6-v2 within 15s timeout.

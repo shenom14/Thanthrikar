@@ -30,9 +30,10 @@ class PlannerAgent:
             template="""You are an AI assistant analyzing an interview transcript in real-time.
 Your goal is to extract any testable claims or technical statements made by the candidate.
 
-If the candidate describes their past experience, projects, metrics, or responsibilities, classify it as 'verify_claim'.
-If the candidate makes a general technical assertion (e.g., 'Python lists are immutable'), classify it as 'fact_check'.
-Only extract significant, testable statements. If there are none, return an empty list.
+Note: The transcript arrives in very short 2-second live chunks. You must evaluate even partial sentences or brief keywords!
+- If the candidate mentions an experience, project, metric, or responsibility (even briefly like "I built a React app"), classify it as 'verify_claim'.
+- If the candidate states a technical fact (e.g., "React uses a virtual DOM" or "Python lists"), classify it as 'fact_check'.
+Only return an empty list if the snippet contains zero technical terms, zero names, and zero claims (e.g., "uh", "hello", "yes").
 
 {format_instructions}
 
