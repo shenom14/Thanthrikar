@@ -3,6 +3,8 @@ import os
 import sys
 
 # Ensure backend imports work before testing
+import os
+os.environ["GROQ_API_KEY"] = "mock_key_for_testing"
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from config.settings import settings

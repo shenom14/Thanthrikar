@@ -8,8 +8,8 @@
  * - Push real-time insights to popup.html.
  */
 
-const API_BASE_URL = "http://127.0.0.1:8000";
-const WS_BASE_URL = "ws://127.0.0.1:8000";
+const API_BASE_URL = "http://127.0.0.1:8001";
+const WS_BASE_URL = "ws://127.0.0.1:8001";
 
 let socket = null;
 let currentSessionId = null;

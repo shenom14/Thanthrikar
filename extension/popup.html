@@ -5,379 +5,394 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Interview Copilot</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            width: 350px;
-            padding: 15px;
-            background-color: #f7f9fc;
-            color: #333;
-            margin: 0;
+            width: 400px;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 400px;
         }
 
-        h2 {
-            margin-top: 0;
-            font-size: 1.2rem;
-            color: #2c3e50;
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1e3a5f, #2563eb);
+            padding: 14px 16px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
         }
-
+        .header h1 { font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
         .status-dot {
-            height: 10px;
-            width: 10px;
-            background-color: #ccc;
-            border-radius: 50%;
-            display: inline-block;
+            width: 10px; height: 10px; background: #475569;
+            border-radius: 50%; display: inline-block; transition: all 0.3s;
         }
+        .status-dot.active { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
 
-        .status-dot.active {
-            background-color: #2ecc71;
-            box-shadow: 0 0 5px #2ecc71;
-        }
-
-        /* Top-Level Mode Tab Styles */
-        .mode-tabs {
-            display: flex;
-            border-bottom: 2px solid #bdc3c7;
-            margin-bottom: 12px;
-            background: #ecf0f1;
-            border-radius: 6px 6px 0 0;
-        }
-        
+        /* Top-Level Mode Tabs */
+        .mode-tabs { display: flex; background: #1e293b; border-bottom: 1px solid #334155; }
         .mode-tab {
-            flex: 1;
-            text-align: center;
-            padding: 10px 0;
-            cursor: pointer;
-            font-size: 0.95rem;
-            font-weight: bold;
-            color: #7f8c8d;
-            transition: all 0.2s;
+            flex: 1; text-align: center; padding: 10px 0;
+            cursor: pointer; font-size: 0.85rem; font-weight: 600;
+            color: #64748b; transition: all 0.2s;
         }
-        
-        .mode-tab:hover {
-            color: #34495e;
-            background: #e2e6e8;
-        }
-        
-        .mode-tab.active {
-            color: white;
-            background: #2c3e50;
-            border-radius: 6px 6px 0 0;
-            border-bottom: 2px solid #2c3e50;
-        }
+        .mode-tab:hover { color: #94a3b8; background: #243047; }
+        .mode-tab.active { color: #60a5fa; border-bottom: 2px solid #2563eb; background: #1e293b; }
 
-        /* Generic views */
-        .app-mode-view {
-            display: none;
-        }
-        
-        .app-mode-view.active {
-            display: block;
-        }
+        .app-mode-view { display: none; }
+        .app-mode-view.active { display: block; }
 
-        /* Sub-Tab Styles for Prep Mode */
-        .tabs {
-            display: flex;
-            border-bottom: 1px solid #ccc;
-            margin-bottom: 12px;
-        }
-        
-        .tab {
-            flex: 1;
-            text-align: center;
-            padding: 8px 0;
-            cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: bold;
-            color: #7f8c8d;
-            border-bottom: 2px solid transparent;
-        }
-        
-        .tab.active {
-            color: #2980b9;
-            border-bottom: 2px solid #2980b9;
-        }
+        /* Content Areas */
+        .content { padding: 14px; }
 
-        .mode-view {
-            display: none;
-        }
-        
-        .mode-view.active {
-            display: block;
-        }
+        /* Step System */
+        .step { display: none; }
+        .step.active { display: block; }
 
-        .section {
-            background-color: white;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        .step-indicator {
+            display: flex; align-items: center; justify-content: center;
+            gap: 6px; margin-bottom: 14px;
         }
-
-        .candidate-info {
-            font-size: 0.9rem;
+        .step-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #334155; transition: all 0.3s;
         }
+        .step-dot.done { background: #22c55e; }
+        .step-dot.active { background: #2563eb; width: 10px; height: 10px; }
 
-        .question-box {
-            font-weight: bold;
-            color: #1a5276;
-            margin-bottom: 8px;
-            font-size: 0.95rem;
-        }
-
-        .insights {
-            font-size: 0.85rem;
-            color: #d35400;
-            min-height: 40px;
-        }
-
-        input[type="text"], input[type="number"], textarea, select {
-            width: calc(100% - 16px);
-            padding: 8px;
-            margin-bottom: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-family: inherit;
-        }
-
+        /* Form elements */
         label {
-            display: block;
+            display: block; font-size: 0.78rem; font-weight: 600;
+            color: #94a3b8; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        input[type="text"], input[type="number"], textarea, select {
+            width: 100%; padding: 9px 10px; background: #1e293b;
+            border: 1px solid #334155; border-radius: 6px;
+            color: #e2e8f0; font-family: inherit; font-size: 0.9rem;
+            margin-bottom: 10px; transition: border-color 0.2s;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none; border-color: #2563eb;
+        }
+        select option { background: #1e293b; }
+
+        /* Buttons */
+        .btn {
+            width: 100%; padding: 10px; border: none; border-radius: 6px;
+            font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+            margin-bottom: 8px;
+        }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-primary:hover { background: #3b82f6; }
+        .btn-primary:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+        .btn-secondary { background: #334155; color: #94a3b8; }
+        .btn-secondary:hover { background: #3f4f65; color: #cbd5e1; }
+        .btn-success { background: #16a34a; color: #fff; }
+        .btn-success:hover { background: #22c55e; }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #ef4444; }
+        .btn-outline {
+            background: transparent; border: 1px solid #2563eb;
+            color: #60a5fa;
+        }
+        .btn-outline:hover { background: #1e3a5f; }
+        .btn-sm { padding: 6px 10px; font-size: 0.8rem; width: auto; margin: 0; }
+
+        /* Cards */
+        .card {
+            background: #1e293b; border: 1px solid #334155;
+            border-radius: 8px; padding: 12px; margin-bottom: 10px;
+        }
+        .card-title { font-size: 0.8rem; font-weight: 700; color: #60a5fa; margin-bottom: 8px; }
+
+        /* Skill weight sliders */
+        .skill-weight-row {
+            display: flex; align-items: center; gap: 8px;
+            margin-bottom: 10px;
+        }
+        .skill-weight-row .skill-label {
+            flex: 1; font-size: 0.85rem; color: #e2e8f0; font-weight: 600;
+        }
+        .skill-weight-row input[type="range"] {
+            flex: 2; margin-bottom: 0; padding: 0;
+            accent-color: #2563eb; border: none; background: transparent;
+        }
+        .skill-weight-val {
+            min-width: 36px; text-align: right; font-size: 0.85rem;
+            color: #60a5fa; font-weight: 700;
+        }
+
+        /* Question flashcard */
+        .q-meta {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        .q-category {
+            font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;
+            color: #64748b; font-weight: 700;
+        }
+        .q-counter { font-size: 0.75rem; color: #475569; }
+        .q-badge {
+            display: inline-block; font-size: 0.7rem; padding: 2px 6px;
+            border-radius: 4px; background: #1e3a5f; color: #60a5fa;
             margin-bottom: 4px;
-            font-weight: bold;
-            font-size: 0.9rem;
-            color: #34495e;
+        }
+        .q-text {
+            font-size: 1rem; color: #f1f5f9; font-weight: 600;
+            margin-bottom: 10px; min-height: 60px; line-height: 1.5;
+        }
+        .q-reasoning {
+            font-size: 0.8rem; color: #f59e0b;
+            padding: 8px 10px; background: #1c1400;
+            border-left: 3px solid #f59e0b; border-radius: 4px;
+            margin-bottom: 10px;
         }
 
-        button {
-            width: 100%;
-            padding: 10px;
-            background-color: #2980b9;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-            margin-bottom: 8px;
-        }
-
-        button:hover {
-            background-color: #3498db;
-        }
-        
-        button.danger {
-            background-color: #e74c3c;
-        }
-
-        button.danger:hover {
-            background-color: #c0392b;
-        }
-
-        button:disabled {
-            background-color: #bdc3c7;
-            cursor: not-allowed;
-        }
-
-        /* Flashcard Styles */
-        .question-category {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            color: #7f8c8d;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-
-        .question-text {
-            font-size: 1rem;
-            color: #2c3e50;
-            font-weight: 600;
-            margin-bottom: 15px;
-            min-height: 80px;
-        }
-
-        .question-reasoning {
-            font-size: 0.85rem;
-            color: #e67e22;
-            padding: 8px;
-            background-color: #fdf2e9;
-            border-left: 3px solid #e67e22;
-            border-radius: 4px;
-        }
-        
-        .error-msg {
-            color: #c0392b;
-            font-size: 0.85rem;
-            margin-top: 10px;
-            display: none;
-        }
-
-        .followup-stack {
-            margin-top: 12px;
-            border-top: 1px solid #ecf0f1;
-            padding-top: 10px;
-        }
-
+        /* Follow-up stack */
+        .followup-stack { margin-top: 10px; }
         .followup-item {
-            font-size: 0.9rem;
-            color: #16a085;
-            padding: 8px 10px;
-            margin-bottom: 8px;
-            background-color: #e8f6f3;
-            border-left: 3px solid #16a085;
-            border-radius: 4px;
+            font-size: 0.85rem; color: #34d399; padding: 8px 10px;
+            margin-bottom: 6px; background: #022c22;
+            border-left: 3px solid #10b981; border-radius: 4px; line-height: 1.4;
+        }
+        .followup-label { font-size: 0.7rem; text-transform: uppercase; color: #059669; font-weight: 700; }
+
+        /* JD display box */
+        .jd-skill-tag {
+            display: inline-block; background: #1e3a5f; color: #60a5fa;
+            border: 1px solid #2563eb; border-radius: 4px;
+            font-size: 0.75rem; padding: 3px 8px; margin: 3px;
+        }
+        .jd-skills-container { margin-bottom: 10px; }
+
+        /* Difficulty pill selector */
+        .difficulty-group { display: flex; gap: 8px; margin-bottom: 10px; }
+        .diff-btn {
+            flex: 1; padding: 8px 0; text-align: center;
+            border-radius: 6px; border: 1px solid #334155;
+            cursor: pointer; font-size: 0.82rem; font-weight: 600;
+            color: #64748b; background: #1e293b; transition: all 0.2s;
+        }
+        .diff-btn.selected { border-color: #2563eb; color: #60a5fa; background: #1e3a5f; }
+
+        /* Role dropdown style */
+        .role-option-icon { margin-right: 4px; }
+
+        /* Error / Status banners */
+        .error-msg {
+            color: #f87171; font-size: 0.82rem; margin-bottom: 8px;
+            background: #1c0000; border: 1px solid #dc2626;
+            padding: 8px; border-radius: 6px; display: none;
+        }
+        .status-msg {
+            color: #60a5fa; font-size: 0.82rem; margin-bottom: 8px;
+            background: #051830; border: 1px solid #2563eb;
+            padding: 8px; border-radius: 6px; display: none;
+        }
+        .spinner { display: inline-block; margin-right: 6px; animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Live Mode elements */
+        .live-insight-box {
+            background: #0d1526; border: 1px solid #1e3a5f;
+            border-radius: 6px; padding: 10px; font-size: 0.85rem;
+            color: #94a3b8; min-height: 48px; line-height: 1.5;
+        }
+        .live-followup-box {
+            background: #022c22; border: 1px solid #10b981;
+            border-radius: 6px; padding: 10px; font-size: 0.88rem;
+            color: #34d399; min-height: 32px; font-weight: 600;
         }
 
-        .followup-item strong {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            color: #1abc9c;
-        }
-
+        /* Separator */
+        .sep { border: none; border-top: 1px solid #1e293b; margin: 10px 0; }
     </style>
 </head>
-
 <body>
-    <h2>AI Copilot <span class="status-dot" id="ws-status" title="Disconnected"></span></h2>
 
-    <!-- Top-Level App Mode Switcher -->
+    <div class="header">
+        <h1>&#129302; AI Interview Copilot</h1>
+        <span class="status-dot" id="ws-status" title="Disconnected"></span>
+    </div>
+
+    <!-- Top Mode Tabs -->
     <div class="mode-tabs">
         <div class="mode-tab active" id="app-mode-prep">Prep Mode</div>
-        <div class="mode-tab" id="app-mode-live">Live Mode</div>
+        <div class="mode-tab" id="app-mode-live">Live Copilot</div>
     </div>
 
-    <!-- ============================================== -->
-    <!-- MODE 1: CANDIDATE PREP (Question Generation)   -->
-    <!-- ============================================== -->
+    <!-- ============================== -->
+    <!--  PREP MODE                     -->
+    <!-- ============================== -->
     <div id="app-view-prep" class="app-mode-view active">
-        
-        <!-- Main Container shown before questions are generated -->
-        <div id="setup-container">
-            <!-- Tabs -->
-            <div class="tabs">
-                <div class="tab active" id="tab-airtable">Airtable Data</div>
-                <div class="tab" id="tab-manual">Manual Entry</div>
+        <div class="content">
+
+            <!-- STEP INDICATOR -->
+            <div class="step-indicator" id="prep-step-dots">
+                <div class="step-dot active" id="dot-1"></div>
+                <div class="step-dot" id="dot-2"></div>
+                <div class="step-dot" id="dot-3"></div>
+                <div class="step-dot" id="dot-4"></div>
             </div>
 
-            <!-- Preloaded Candidates Mode (Airtable Simulation) -->
-            <div id="view-airtable" class="mode-view active">
-                <div class="section">
-                    <label>Select Scheduled Candidate</label>
-                    <select id="airtable-select">
-                        <!-- Options populated by JS -->
+            <!-- ===== STEP 1: Role & Candidate Info ===== -->
+            <div class="step active" id="prep-step-1">
+                <div class="card">
+                    <div class="card-title">Step 1 — Job Role &amp; Candidate</div>
+
+                    <label>Job Role</label>
+                    <select id="jd-role-select">
+                        <option value="">-- Select a Role --</option>
+                        <option value="Backend Engineer">Backend Engineer</option>
+                        <option value="Frontend Engineer">Frontend Engineer</option>
+                        <option value="Full Stack Engineer">Full Stack Engineer</option>
+                        <option value="DevOps Engineer">DevOps Engineer</option>
+                        <option value="AI Engineer">AI Engineer</option>
+                        <option value="Data Engineer">Data Engineer</option>
+                        <option value="Mobile Engineer">Mobile Engineer</option>
+                        <option value="Security Engineer">Security Engineer</option>
                     </select>
-                    
-                    <div style="font-size: 0.8rem; color: #7f8c8d; margin-bottom: 10px; font-style: italic;">
-                        Candidate data (Resume & profiles) will automatically be loaded from Airtable CRM.
-                    </div>
-                    
-                    <button id="generate-btn-airtable">Generate Questions from CRM</button>
-                    <div id="error-msg-airtable" class="error-msg"></div>
-                </div>
-            </div>
 
-            <!-- Direct Input Mode -->
-            <div id="view-manual" class="mode-view">
-                <div class="section">
                     <label>Candidate Name</label>
-                    <input type="text" id="candidate-name" placeholder="John Smith" />
-                    
-                    <label>Role</label>
-                    <input type="text" id="candidate-role" placeholder="Backend Engineer" />
-                    
-                    <label>Years Experience</label>
-                    <input type="number" id="candidate-exp" placeholder="5" />
-                    
-                    <label>LinkedIn URL (Optional)</label>
-                    <input type="text" id="candidate-linkedin" placeholder="https://linkedin.com/in/..." />
-                    
-                    <label>GitHub Username (Optional)</label>
-                    <input type="text" id="candidate-github" placeholder="johnsmith" />
-                    
-                    <label>Resume Snippet</label>
-                    <textarea id="candidate-resume" rows="3" placeholder="Paste resume..."></textarea>
-                    
-                    <button id="generate-btn-manual">Generate Question Set</button>
-                    <div id="error-msg-manual" class="error-msg"></div>
-                </div>
-            </div>
-        </div>
+                    <input type="text" id="jd-cand-name" placeholder="John Smith" />
 
-        <!-- Active Interview Flashcard View (Hidden initially) -->
-        <div id="interview-view" style="display: none;">
-            <div class="section">
-                <div id="q-counter" style="text-align: right; font-size: 0.8rem; color: #95a5a6; margin-bottom: 10px;">Question 1 / X</div>
-                <div class="question-category" id="q-category">Category</div>
-                <div class="question-text" id="q-text">Loading...</div>
-                <div class="question-reasoning" id="q-reasoning">Reasoning...</div>
-                <div id="followup-stack" class="followup-stack"></div>
+                    <label>Years of Experience</label>
+                    <input type="number" id="jd-cand-exp" placeholder="3" min="0" max="40" />
+
+                    <label>LinkedIn URL (optional)</label>
+                    <input type="text" id="jd-cand-linkedin" placeholder="https://linkedin.com/in/..." />
+
+                    <label>GitHub Username (optional)</label>
+                    <input type="text" id="jd-cand-github" placeholder="johnsmith" />
+
+                    <label>Resume Snippet (optional)</label>
+                    <textarea id="jd-cand-resume" rows="3" placeholder="Paste a short resume summary..."></textarea>
+                </div>
+
+                <div id="jd-step1-error" class="error-msg"></div>
+                <div id="jd-step1-status" class="status-msg"></div>
+                <button class="btn btn-primary" id="jd-step1-next">Generate Job Description &rarr;</button>
             </div>
-            
-            <button id="next-btn">Next Question</button>
-            <button id="followup-btn">Generate Follow-up Question</button>
-            <button id="reset-btn" style="background-color: #7f8c8d; margin-top: 10px;">End Prep</button>
+
+            <!-- ===== STEP 2: JD Review & Skill Weights ===== -->
+            <div class="step" id="prep-step-2">
+                <div class="card">
+                    <div class="card-title">Step 2 — JD Skills &amp; Priorities</div>
+                    <div style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">
+                        Adjust sliders to control how many questions focus on each skill.
+                    </div>
+                    <div id="jd-skills-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Interview Difficulty</div>
+                    <div class="difficulty-group">
+                        <div class="diff-btn" data-diff="junior" id="diff-junior">Junior</div>
+                        <div class="diff-btn selected" data-diff="mid" id="diff-mid">Mid-Level</div>
+                        <div class="diff-btn" data-diff="senior" id="diff-senior">Senior</div>
+                    </div>
+
+                    <label>Number of Questions</label>
+                    <select id="jd-q-count">
+                        <option value="10">10 Questions</option>
+                        <option value="15" selected>15 Questions</option>
+                        <option value="20">20 Questions</option>
+                        <option value="25">25 Questions</option>
+                    </select>
+                </div>
+
+                <div id="jd-step2-error" class="error-msg"></div>
+                <div id="jd-step2-status" class="status-msg"></div>
+                <button class="btn btn-primary" id="jd-step2-next">Generate Interview Questions &rarr;</button>
+                <button class="btn btn-secondary" id="jd-step2-back">&larr; Back</button>
+            </div>
+
+            <!-- ===== STEP 3: Active Interview ===== -->
+            <div class="step" id="prep-step-3">
+                <div class="card">
+                    <div class="q-meta">
+                        <div>
+                            <div class="q-category" id="q-category">Category</div>
+                            <span class="q-badge" id="q-jd-skill"></span>
+                            <span class="q-badge" style="background:#0f2a1a;color:#34d399;border-color:#10b981;" id="q-difficulty"></span>
+                        </div>
+                        <div class="q-counter" id="q-counter">Q 1 / 15</div>
+                    </div>
+                    <div class="q-text" id="q-text">Loading question...</div>
+                    <div class="q-reasoning" id="q-reasoning">Evaluation goal...</div>
+
+                    <div class="followup-stack" id="followup-stack"></div>
+                </div>
+
+                <button class="btn btn-success" id="followup-btn">Generate Follow-Up Question</button>
+                <button class="btn btn-primary" id="next-btn">Next Question &rarr;</button>
+                <button class="btn btn-secondary" id="reset-btn" style="margin-top:6px;">&#8635; New Interview</button>
+
+                <div id="jd-step3-error" class="error-msg" style="margin-top:8px;"></div>
+            </div>
+
         </div>
     </div>
 
 
-    <!-- ================================================== -->
-    <!-- MODE 2: LIVE COPILOT (Real-Time Audio / Websocket) -->
-    <!-- ================================================== -->
+    <!-- ============================== -->
+    <!--  LIVE COPILOT MODE             -->
+    <!-- ============================== -->
     <div id="app-view-live" class="app-mode-view">
-        
-        <!-- Setup View -->
-        <div id="setup-view" class="section">
-            <label>Candidate ID (Airtable)</label>
-            <input type="text" id="candidate-id-input" placeholder="rec123abc..." />
-            <button id="start-btn">Start Interview</button>
+        <div class="content">
+
+            <!-- Setup -->
+            <div id="setup-view">
+                <div class="card">
+                    <div class="card-title">Start Live Interview Session</div>
+                    <label>Candidate ID (from CRM)</label>
+                    <input type="text" id="candidate-id-input" placeholder="rec123abc..." />
+                    <button class="btn btn-primary" id="start-btn">Start Session</button>
+                </div>
+            </div>
+
+            <!-- Active Session -->
+            <div id="active-view" style="display:none;">
+                <div class="card" style="font-size:0.82rem;">
+                    <strong>Candidate:</strong> <span id="candidate-id-display">-</span> &nbsp;
+                    <strong>Session:</strong> <span id="session-id-display">-</span>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Mic</div>
+                    <div class="live-insight-box" id="mic-status" style="min-height:28px;">Waiting for audio...</div>
+                    <button class="btn btn-primary" id="capture-mic-btn" style="margin-top:8px;">&#127908; Capture Mic Audio</button>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Manual Claim Testing</div>
+                    <input type="text" id="manual-claim-input" placeholder="e.g. I migrated 10M rows to AWS" />
+                    <button class="btn btn-outline" id="send-claim-btn">Send to AI</button>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Live Transcript</div>
+                    <div class="live-insight-box" id="live-transcript"><em>Start speaking...</em></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">AI Insights</div>
+                    <div class="live-insight-box" id="ai-insights"><em>Listening for claims...</em></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Suggested Follow-Up</div>
+                    <div class="live-followup-box" id="follow-up-question"><em>None currently.</em></div>
+                </div>
+
+                <button class="btn btn-danger" id="end-btn">End Live Session</button>
+            </div>
         </div>
-
-        <!-- Active Interview View (Hidden initially) -->
-        <div id="active-view" style="display: none;">
-            <div class="section candidate-info">
-                <strong>Candidate ID:</strong> <span id="candidate-id-display">...</span><br />
-                <strong>Session ID:</strong> <span id="session-id-display">...</span>
-            </div>
-
-            <div class="section">
-                <label><strong>Mic Status:</strong></label>
-                <div class="insights" id="mic-status">Waiting for audio...</div>
-                <button id="capture-mic-btn">Capture Mic Audio</button>
-            </div>
-
-            <div class="section">
-                <label><strong>Manual Testing:</strong></label>
-                <input type="text" id="manual-claim-input" placeholder="E.g. I migrated 10M rows to AWS" />
-                <button id="send-claim-btn">Send Claim to AI</button>
-            </div>
-
-            <div class="section" style="background-color: #f1f8ff; border: 1px solid #d0e8fc;">
-                <label><strong>Live Transcript:</strong></label>
-                <div class="insights" id="live-transcript" style="color: #444;">
-                    <em>Start speaking...</em>
-                </div>
-            </div>
-
-            <div class="section">
-                <label><strong>AI Insights:</strong></label>
-                <div class="insights" id="ai-insights">
-                    <em>Listening for claims...</em>
-                </div>
-            </div>
-
-            <div class="section">
-                <label><strong>Suggested Follow-up:</strong></label>
-                <div class="question-box" id="follow-up-question">
-                    <em>None currently.</em>
-                </div>
-            </div>
-
-            <button id="end-btn" class="danger">End Live Session</button>
-        </div>
-
     </div>
 
-    <!-- Combine logic goes into popup.js -->
     <script src="popup.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 import time
 import json
 import logging
-from agents.question_generator import generate_candidate_questions, generate_followup_question  # type: ignore
+from agents.legacy_question_generator import generate_candidate_questions, generate_followup_question  # type: ignore
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(name)s:%(message)s')

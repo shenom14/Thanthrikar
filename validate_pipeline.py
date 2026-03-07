@@ -1,7 +1,7 @@
 import json
 import time
 import logging
-from agents.question_generator import generate_candidate_questions  # type: ignore
+from agents.legacy_question_generator import generate_candidate_questions  # type: ignore
 
 logging.basicConfig(level=logging.INFO)
 

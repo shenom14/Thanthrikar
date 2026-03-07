@@ -34,6 +34,7 @@ app = FastAPI(
     description="Service-Oriented backend for AI Interview Copilot.",
 )
 
+
 # Allow extension origin to communicate freely
 app.add_middleware(
     CORSMiddleware,
@@ -43,11 +44,14 @@ app.add_middleware(
 )
 
 # Mount all unified REST routes
+from backend.routers import jd
 app.include_router(api_router)
+app.include_router(jd.router)
+
 
 # --- Legacy Question Generation Endpoints (Prep Mode) ---
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 
 class CandidateRequest(BaseModel):
     name: str
@@ -84,6 +88,8 @@ async def api_generate_followup(request: FollowUpRequest):
         raise HTTPException(status_code=500, detail=str(e))
 # --------------------------------------------------------
 
+# ==================================================================
+
 # Singleton services for all WS connections
 streaming_pipeline = StreamingPipeline()
 transcriber_service = StreamingTranscriber()
@@ -95,6 +101,8 @@ async def startup_warmup():
     import asyncio
     asyncio.create_task(streaming_pipeline._init_components())
     logger.info("Background AI pipeline warm-up task started.")
+
+
 
 
 @app.get("/raw_health")

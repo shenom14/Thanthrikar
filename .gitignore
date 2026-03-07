@@ -3,3 +3,24 @@ __pycache__/
 *.pyc
 chroma_db/
 data/
+
+# Environments
+venv/
+venv_win/
+.venv/
+
+# Logs and Temp files
+*.log
+server_*.txt
+test_jd_api.py
+verify_full_flow.py
+backend_*.txt
+push_log*.txt
+pytest_output*.txt
+response.json
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+

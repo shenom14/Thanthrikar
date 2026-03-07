@@ -1,356 +1,440 @@
 /**
- * popup.js 
- * Handles UI interactions for the extension popup window in Dual-Mode.
+ * popup.js — AI Interview Copilot (JD-Driven Engine)
+ *
+ * Workflow:
+ *   Step 1 → Role + Candidate info input
+ *   Step 2 → JD auto-generated → Interviewer sets skill weights + difficulty
+ *   Step 3 → Weighted questions displayed, Next / Follow-up interactive navigation
  */
 
+/** Extract just the GitHub username from a full URL or plain username */
+function parseGitHubUsername(input) {
+    if (!input) return "";
+    const match = input.match(/github\.com\/([^/?#]+)/i);
+    return match ? match[1].trim() : input.trim();
+}
+
+/** Normalize a LinkedIn URL — accepts full URL or just a slug */
+function parseLinkedInUrl(input) {
+    if (!input) return "";
+    input = input.trim();
+    if (!input.startsWith("http") && !input.startsWith("linkedin")) {
+        return "https://www.linkedin.com/in/" + input;
+    }
+    return input.split("?")[0]; // Strip query params
+}
+
+
+const API_BASE = "http://127.0.0.1:8001";
+
 document.addEventListener("DOMContentLoaded", () => {
-    // ==============================================
-    // 1. DUAL-MODE TAB SWITCHING LOGIC
-    // ==============================================
-    const appModePrepTab = document.getElementById("app-mode-prep");
-    const appModeLiveTab = document.getElementById("app-mode-live");
-    const appViewPrep = document.getElementById("app-view-prep");
-    const appViewLive = document.getElementById("app-view-live");
 
-    appModePrepTab.addEventListener("click", () => {
-        appModePrepTab.classList.add("active");
-        appModeLiveTab.classList.remove("active");
-        appViewPrep.classList.add("active");
-        appViewLive.classList.remove("active");
+    // ============================================================
+    //  TOP-LEVEL MODE TABS (Prep vs Live)
+    // ============================================================
+    document.getElementById("app-mode-prep").addEventListener("click", () => {
+        document.getElementById("app-mode-prep").classList.add("active");
+        document.getElementById("app-mode-live").classList.remove("active");
+        document.getElementById("app-view-prep").classList.add("active");
+        document.getElementById("app-view-live").classList.remove("active");
+    });
+    document.getElementById("app-mode-live").addEventListener("click", () => {
+        document.getElementById("app-mode-live").classList.add("active");
+        document.getElementById("app-mode-prep").classList.remove("active");
+        document.getElementById("app-view-live").classList.add("active");
+        document.getElementById("app-view-prep").classList.remove("active");
     });
 
-    appModeLiveTab.addEventListener("click", () => {
-        appModeLiveTab.classList.add("active");
-        appModePrepTab.classList.remove("active");
-        appViewLive.classList.add("active");
-        appViewPrep.classList.remove("active");
-    });
+    // ============================================================
+    //  PREP MODE — JD-DRIVEN MULTI-STEP WIZARD
+    // ============================================================
 
+    // State
+    let currentStep = 1;
+    let jdData = null;         // JD returned from backend (skills, role, etc.)
+    let skillWeights = {};     // { "Python": 40, "Docker": 30, ... }
+    let selectedDifficulty = "mid";
+    let questionsQueue = [];   // flat array of question objects
+    let currentQIndex = 0;
+    let followUpHistory = [];  // [{question, response}]
+    let candidateSession = {}; // Stores name, role, github_repos, jd_skills
 
-    // ==============================================
-    // 2. PREP MODE LOGIC (Original generator)
-    // ==============================================
-    const setupContainer = document.getElementById("setup-container");
-    const interviewView = document.getElementById("interview-view");
+    // Helper: show a step and update dot indicators
+    function goToStep(step) {
+        document.querySelectorAll(".step").forEach(el => el.classList.remove("active"));
+        document.getElementById(`prep-step-${step}`).classList.add("active");
+        for (let i = 1; i <= 4; i++) {
+            const dot = document.getElementById(`dot-${i}`);
+            if (!dot) continue;
+            dot.classList.remove("active", "done");
+            if (i < step) dot.classList.add("done");
+            if (i === step) dot.classList.add("active");
+        }
+        currentStep = step;
+    }
 
-    // Sub-Tabs
-    const tabAirtable = document.getElementById("tab-airtable");
-    const tabManual = document.getElementById("tab-manual");
-    const viewAirtable = document.getElementById("view-airtable");
-    const viewManual = document.getElementById("view-manual");
+    function showMsg(id, msg, isError = false) {
+        const el = document.getElementById(id);
+        el.textContent = msg;
+        el.style.display = "block";
+    }
+    function hideMsg(id) {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = ""; el.style.display = "none"; }
+    }
 
-    // Elements
-    const airtableSelect = document.getElementById("airtable-select");
-    const btnGenAirtable = document.getElementById("generate-btn-airtable");
-    const errAirtable = document.getElementById("error-msg-airtable");
+    // ==== STEP 1: Generate JD from role ====
+    document.getElementById("jd-step1-next").addEventListener("click", async () => {
+        const role = document.getElementById("jd-role-select").value.trim();
+        const name = document.getElementById("jd-cand-name").value.trim();
+        const exp = document.getElementById("jd-cand-exp").value.trim();
 
-    const btnGenManual = document.getElementById("generate-btn-manual");
-    const errManual = document.getElementById("error-msg-manual");
+        if (!role) return showMsg("jd-step1-error", "Please select a job role.", true);
+        if (!name) return showMsg("jd-step1-error", "Candidate name is required.", true);
+        hideMsg("jd-step1-error");
 
-    const nextBtnPrep = document.getElementById("next-btn");
-    const followupBtnPrep = document.getElementById("followup-btn");
-    const resetBtnPrep = document.getElementById("reset-btn");
-    const followupStackEl = document.getElementById("followup-stack");
+        const btn = document.getElementById("jd-step1-next");
+        btn.disabled = true;
+        btn.textContent = "Generating Job Description...";
+        showMsg("jd-step1-status", "Contacting AI to auto-generate Job Description...");
 
-    let questionsQueue = [];
-    let currentIndex = 0;
-    let followUpContextPrep = [];
+        try {
+            const res = await fetch(`${API_BASE}/api/v1/jd/generate-jd`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ role })
+            });
+            if (!res.ok) throw new Error(`Server error ${res.status}`);
+            jdData = await res.json();
 
-    // Mock Airtable Data
-    const mockAirtableData = [
-        { id: "rec1", name: "Alice Johnson", role: "Senior Frontend Engineer", years_experience: 6, linkedin_url: "https://linkedin.com/in/alicej", github_username: "alicejs", resume_text: "Expert in React, TypeScript, and Webpack. Performance optimization and accessibility advocate." },
-        { id: "rec2", name: "Bob Builder", role: "DevOps Engineer", years_experience: 4, linkedin_url: "https://linkedin.com/in/bobops", github_username: "bobinfra", resume_text: "Built CI/CD pipelines using GitHub Actions, deployed workloads on AWS EKS and automated via Terraform." }
-    ];
+            // Store candidate session data for later
+            candidateSession = {
+                role,
+                name,
+                years_experience: exp || "3",
+                linkedin_url: parseLinkedInUrl(document.getElementById("jd-cand-linkedin").value) || null,
+                github_username: parseGitHubUsername(document.getElementById("jd-cand-github").value) || null,
+                resume_text: document.getElementById("jd-cand-resume").value.trim() || ""
+            };
 
-    mockAirtableData.forEach((candidate, index) => {
-        const option = document.createElement("option");
-        option.value = index;
-        option.text = `${candidate.name} - ${candidate.role}`;
-        airtableSelect.appendChild(option);
-    });
+            hideMsg("jd-step1-status");
+            buildSkillWeightPanel(jdData.required_skills || []);
+            goToStep(2);
 
-    chrome.storage.local.get(["interviewQuestions", "currentIndex"], (res) => {
-        if (res.interviewQuestions && res.interviewQuestions.length > 0) {
-            questionsQueue = res.interviewQuestions;
-            currentIndex = res.currentIndex || 0;
-            showInterviewView();
+        } catch (e) {
+            showMsg("jd-step1-error", "Failed to generate JD: " + e.message, true);
+            hideMsg("jd-step1-status");
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Generate Job Description →";
         }
     });
 
-    tabAirtable.addEventListener("click", () => {
-        tabAirtable.classList.add("active");
-        tabManual.classList.remove("active");
-        viewAirtable.classList.add("active");
-        viewManual.classList.remove("active");
-    });
+    // Build the skill weight sliders from the parsed JD
+    function buildSkillWeightPanel(skills) {
+        const container = document.getElementById("jd-skills-list");
+        container.innerHTML = "";
+        skillWeights = {};
 
-    tabManual.addEventListener("click", () => {
-        tabManual.classList.add("active");
-        tabAirtable.classList.remove("active");
-        viewManual.classList.add("active");
-        viewAirtable.classList.remove("active");
-    });
+        if (!skills.length) {
+            container.innerHTML = `<div style="color:#64748b;font-size:0.85rem;">No skills extracted. You can proceed with default weights.</div>`;
+            return;
+        }
 
-    btnGenAirtable.addEventListener("click", () => {
-        const payload = mockAirtableData[airtableSelect.value];
-        btnGenAirtable.disabled = true;
-        btnGenAirtable.innerText = "Analyzing CRM Data...";
-        errAirtable.style.display = 'none';
-        makeQuestionsRequest(payload, btnGenAirtable, errAirtable, "Generate Questions from CRM");
-    });
+        const defaultWeight = Math.floor(100 / skills.length);
 
-    btnGenManual.addEventListener("click", () => {
-        const name = document.getElementById("candidate-name").value.trim();
-        const role = document.getElementById("candidate-role").value.trim();
-        const exp = parseInt(document.getElementById("candidate-exp").value) || 0;
-        const linkedin = document.getElementById("candidate-linkedin").value.trim();
-        const github = document.getElementById("candidate-github").value.trim();
-        const resume = document.getElementById("candidate-resume").value.trim();
+        skills.forEach((skill, i) => {
+            const weight = defaultWeight + (i === 0 ? 100 - defaultWeight * skills.length : 0);
+            skillWeights[skill] = weight;
 
-        if (!name || !role) return showError(errManual, "Name and Role are required.");
+            const row = document.createElement("div");
+            row.className = "skill-weight-row";
+            row.innerHTML = `
+                <span class="skill-label">${skill}</span>
+                <input type="range" min="0" max="100" value="${weight}" data-skill="${skill}" />
+                <span class="skill-weight-val" id="val-${i}">${weight}%</span>`;
+            container.appendChild(row);
 
-        btnGenManual.disabled = true;
-        btnGenManual.innerText = "Analyzing Candidate...";
-        errManual.style.display = 'none';
-
-        makeQuestionsRequest({
-            name, role, years_experience: exp,
-            resume_text: resume || "No resume provided.",
-            linkedin_url: linkedin || null,
-            github_username: github || null
-        }, btnGenManual, errManual, "Generate Question Set");
-    });
-
-    function makeQuestionsRequest(payload, btnElement, errElement, originalBtnText) {
-        chrome.runtime.sendMessage({ action: "generate_questions", payload }, (res) => {
-            if (res && res.success) {
-                questionsQueue = flattenQuestions(res.data.questions);
-                currentIndex = 0;
-                chrome.storage.local.set({ interviewQuestions: questionsQueue, currentIndex });
-                showInterviewView();
-                btnElement.disabled = false;
-                btnElement.innerText = originalBtnText;
-            } else {
-                showError(errElement, "Failed to generate questions: " + (res ? res.error : "Backend unavailable. Is uvicorn running?"));
-                btnElement.disabled = false;
-                btnElement.innerText = originalBtnText;
-            }
+            row.querySelector("input[type=range]").addEventListener("input", (e) => {
+                const s = e.target.dataset.skill;
+                const v = parseInt(e.target.value);
+                skillWeights[s] = v;
+                document.getElementById(`val-${i}`).textContent = `${v}%`;
+            });
         });
     }
 
-    nextBtnPrep.addEventListener("click", () => {
-        if (currentIndex < questionsQueue.length - 1) {
-            currentIndex++;
-            followUpContextPrep = [];
-            clearFollowUpStack();
-            chrome.storage.local.set({ currentIndex });
+    // Difficulty selection
+    document.querySelectorAll(".diff-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll(".diff-btn").forEach(b => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            selectedDifficulty = btn.dataset.diff;
+        });
+    });
+
+    // Back button from step 2
+    document.getElementById("jd-step2-back").addEventListener("click", () => goToStep(1));
+
+    // ==== STEP 2: Accept weights, call generate-questions ====
+    document.getElementById("jd-step2-next").addEventListener("click", async () => {
+        const totalQ = parseInt(document.getElementById("jd-q-count").value) || 15;
+        hideMsg("jd-step2-error");
+
+        const btn = document.getElementById("jd-step2-next");
+        btn.disabled = true;
+        btn.textContent = "Analyzing Candidate & Generating Questions...";
+        showMsg("jd-step2-status", "This may take 5–15 seconds. Building your personalized question set...");
+
+        const payload = {
+            ...candidateSession,
+            skill_weights: skillWeights,
+            difficulty: selectedDifficulty,
+            total_questions: totalQ
+        };
+
+        try {
+            const res = await fetch(`${API_BASE}/api/v1/jd/generate-questions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error(`Server error ${res.status}`);
+            const data = await res.json();
+
+            questionsQueue = data.questions || [];
+            if (!questionsQueue.length) throw new Error("No questions were generated.");
+
+            // Store session objects for follow-up calls
+            candidateSession.github_repositories = data.github_repositories || [];
+            candidateSession.jd_skills = jdData.required_skills || [];
+
+            currentQIndex = 0;
+            followUpHistory = [];
+
+            hideMsg("jd-step2-status");
+            goToStep(3);
             renderCurrentQuestion();
-        } else {
-            nextBtnPrep.disabled = true;
-            nextBtnPrep.innerText = "No More Questions";
+
+        } catch (e) {
+            showMsg("jd-step2-error", "Failed to generate questions: " + e.message, true);
+            hideMsg("jd-step2-status");
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Generate Interview Questions →";
         }
     });
 
-    followupBtnPrep.addEventListener("click", () => {
-        if (!questionsQueue.length || currentIndex >= questionsQueue.length) return;
-        const q = questionsQueue[currentIndex];
-        followupBtnPrep.disabled = true;
-        followupBtnPrep.innerText = "Generating...";
-        chrome.runtime.sendMessage({
-            action: "generate_followup",
-            current_question: q.question,
-            candidate_context: followUpContextPrep.join(" ")
-        }, (res) => {
-            followupBtnPrep.disabled = false;
-            followupBtnPrep.innerText = "Generate Follow-up Question";
-            if (res && res.success && res.follow_up_question) {
-                followUpContextPrep.push(res.follow_up_question);
-                appendFollowUpToStack(res.follow_up_question);
-            } else {
-                appendFollowUpToStack("Error: " + (res && res.error ? res.error : "Failed."), true);
-            }
-        });
-    });
-
-    resetBtnPrep.addEventListener("click", () => {
-        chrome.storage.local.remove(["interviewQuestions", "currentIndex"]);
-        questionsQueue = [];
-        currentIndex = 0;
-        followUpContextPrep = [];
-        clearFollowUpStack();
-        nextBtnPrep.disabled = false;
-        nextBtnPrep.innerText = "Next Question";
-        setupContainer.style.display = "block";
-        interviewView.style.display = "none";
-    });
-
-    function showInterviewView() {
-        setupContainer.style.display = "none";
-        interviewView.style.display = "block";
-        renderCurrentQuestion();
-    }
+    // ==== STEP 3: Flashcard nav ====
 
     function renderCurrentQuestion() {
         if (!questionsQueue.length) return;
-        const q = questionsQueue[currentIndex];
-        document.getElementById("q-counter").innerText = `Question ${currentIndex + 1} of ${questionsQueue.length}`;
-        document.getElementById("q-category").innerText = q.category.replace("_", " ");
-        document.getElementById("q-text").innerText = q.question;
-        document.getElementById("q-reasoning").innerText = q.reasoning;
-        if (currentIndex >= questionsQueue.length - 1) {
-            nextBtnPrep.disabled = true;
-            nextBtnPrep.innerText = "End of Questions";
+        const q = questionsQueue[currentQIndex];
+
+        document.getElementById("q-counter").textContent = `Q ${currentQIndex + 1} / ${questionsQueue.length}`;
+        document.getElementById("q-category").textContent = (q.category || "general").replace(/_/g, " ").toUpperCase();
+        document.getElementById("q-jd-skill").textContent = q.jd_skill ? `# ${q.jd_skill}` : "";
+        document.getElementById("q-difficulty").textContent = (q.difficulty || selectedDifficulty).toUpperCase();
+        document.getElementById("q-text").textContent = q.question || "No question text.";
+        document.getElementById("q-reasoning").textContent = "Goal: " + (q.reasoning || "Probe candidate's depth of knowledge.");
+
+        // Reset follow-up UI
+        document.getElementById("followup-stack").innerHTML = "";
+        followUpHistory = [];
+
+        const nextBtn = document.getElementById("next-btn");
+        if (currentQIndex >= questionsQueue.length - 1) {
+            nextBtn.textContent = "End of Questions";
+            nextBtn.disabled = true;
+            nextBtn.classList.add("btn-secondary");
+        } else {
+            nextBtn.textContent = "Next Question →";
+            nextBtn.disabled = false;
+            nextBtn.classList.remove("btn-secondary");
         }
     }
 
-    function clearFollowUpStack() { if (followupStackEl) followupStackEl.innerHTML = ""; }
-
-    function appendFollowUpToStack(text, isError) {
-        if (!followupStackEl) return;
-        const div = document.createElement("div");
-        div.className = "followup-item";
-        div.innerHTML = (isError ? "" : "<strong>Follow-up</strong><br>") + text;
-        followupStackEl.appendChild(div);
-    }
-
-    function flattenQuestions(questionsObj) {
-        let flat = [];
-        for (const [category, arr] of Object.entries(questionsObj)) {
-            arr.forEach(q => flat.push({ category, question: q.question, reasoning: q.reasoning }));
+    // Next Question
+    document.getElementById("next-btn").addEventListener("click", () => {
+        if (currentQIndex < questionsQueue.length - 1) {
+            currentQIndex++;
+            renderCurrentQuestion();
         }
-        return flat;
-    }
+    });
 
-    function showError(errElement, msg) {
-        errElement.innerText = msg;
-        errElement.style.display = "block";
-    }
+    // Follow-Up Question — sends last response text (or empty string as placeholder)
+    document.getElementById("followup-btn").addEventListener("click", async () => {
+        const q = questionsQueue[currentQIndex];
+        if (!q) return;
 
+        const btn = document.getElementById("followup-btn");
+        btn.disabled = true;
+        btn.textContent = "Generating Follow-up...";
 
-    // ==============================================
-    // 3. LIVE COPILOT LOGIC
-    // ==============================================
-    const setupViewLive = document.getElementById("setup-view"); // Re-using ID inside app-view-live
-    const activeViewLive = document.getElementById("active-view"); // Re-using ID inside app-view-live
-    const startBtnLive = document.getElementById("start-btn");
-    const endBtnLive = document.getElementById("end-btn");
-    const captureMicBtn = document.getElementById("capture-mic-btn");
-    const wsStatusDot = document.getElementById("ws-status");
-    const manualClaimInput = document.getElementById("manual-claim-input");
-    const sendClaimBtn = document.getElementById("send-claim-btn");
+        const payload = {
+            candidate_response: "(Interviewer requesting a follow-up probe)",
+            base_question: q.question,
+            skill_weights: skillWeights,
+            github_repositories: candidateSession.github_repositories || [],
+            experience_years: candidateSession.years_experience || "3",
+            role: candidateSession.role,
+            jd_skills: candidateSession.jd_skills || [],
+            follow_up_history: followUpHistory
+        };
 
+        try {
+            const res = await fetch(`${API_BASE}/api/v1/jd/generate-followup`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error(`Server error ${res.status}`);
+            const data = await res.json();
+            const fq = data.follow_up_question || "No follow-up generated.";
+
+            // Record history
+            followUpHistory.push({
+                question: fq,
+                response: "(Candidate response not yet given)"
+            });
+
+            // Append to stack
+            const stack = document.getElementById("followup-stack");
+            const item = document.createElement("div");
+            item.className = "followup-item";
+            item.innerHTML = `<div class="followup-label">Follow-Up ${followUpHistory.length}</div>${fq}`;
+            stack.appendChild(item);
+            item.scrollIntoView({ behavior: "smooth" });
+
+            document.getElementById("jd-step3-error").style.display = "none";
+        } catch (e) {
+            const errEl = document.getElementById("jd-step3-error");
+            errEl.textContent = "Failed to generate follow-up: " + e.message;
+            errEl.style.display = "block";
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Generate Follow-Up Question";
+        }
+    });
+
+    // Reset / New Interview
+    document.getElementById("reset-btn").addEventListener("click", () => {
+        questionsQueue = [];
+        currentQIndex = 0;
+        followUpHistory = [];
+        jdData = null;
+        skillWeights = {};
+        candidateSession = {};
+
+        // Clear form fields
+        document.getElementById("jd-role-select").value = "";
+        document.getElementById("jd-cand-name").value = "";
+        document.getElementById("jd-cand-exp").value = "";
+        document.getElementById("jd-cand-linkedin").value = "";
+        document.getElementById("jd-cand-github").value = "";
+        document.getElementById("jd-cand-resume").value = "";
+        document.getElementById("jd-skills-list").innerHTML = "";
+
+        goToStep(1);
+    });
+
+    // ============================================================
+    //  LIVE COPILOT MODE
+    // ============================================================
     let isMicCapturing = false;
 
     chrome.runtime.sendMessage({ action: "get_status" }, (res) => {
         if (res && res.isActive) {
-            setupViewLive.style.display = "none";
-            activeViewLive.style.display = "block";
-            document.getElementById("session-id-display").innerText = res.sessionId;
+            document.getElementById("setup-view").style.display = "none";
+            document.getElementById("active-view").style.display = "block";
+            document.getElementById("session-id-display").textContent = res.sessionId;
             updateWsDot(res.socketReady);
         }
     });
 
-    startBtnLive.addEventListener("click", () => {
+    document.getElementById("start-btn").addEventListener("click", () => {
         const candidateId = document.getElementById("candidate-id-input").value.trim();
-        if (!candidateId) return alert("Please enter Candidate ID");
-
-        startBtnLive.disabled = true;
-        startBtnLive.innerText = "Starting...";
-
+        if (!candidateId) return alert("Please enter a Candidate ID");
+        const btn = document.getElementById("start-btn");
+        btn.disabled = true; btn.textContent = "Starting...";
         chrome.runtime.sendMessage({ action: "start_session", candidateId }, (res) => {
             if (res && res.success) {
-                setupViewLive.style.display = "none";
-                activeViewLive.style.display = "block";
-                document.getElementById("candidate-id-display").innerText = candidateId;
-                document.getElementById("session-id-display").innerText = res.session.id;
+                document.getElementById("setup-view").style.display = "none";
+                document.getElementById("active-view").style.display = "block";
+                document.getElementById("candidate-id-display").textContent = candidateId;
+                document.getElementById("session-id-display").textContent = res.session.id;
             } else {
-                alert("Failed to start: " + (res.error || "Unknown"));
-                startBtnLive.disabled = false;
-                startBtnLive.innerText = "Start Interview";
+                alert("Failed to start: " + (res && res.error ? res.error : "Unknown error"));
+                btn.disabled = false; btn.textContent = "Start Session";
             }
         });
     });
 
-    endBtnLive.addEventListener("click", () => {
+    document.getElementById("end-btn").addEventListener("click", () => {
         stopAudioCapture();
-        chrome.runtime.sendMessage({ action: "end_session" }, (res) => {
-            setupViewLive.style.display = "block";
-            activeViewLive.style.display = "none";
-            startBtnLive.disabled = false;
-            startBtnLive.innerText = "Start Interview";
+        chrome.runtime.sendMessage({ action: "end_session" }, () => {
+            document.getElementById("setup-view").style.display = "block";
+            document.getElementById("active-view").style.display = "none";
+            const btn = document.getElementById("start-btn");
+            btn.disabled = false; btn.textContent = "Start Session";
             updateWsDot(false);
         });
     });
 
-    captureMicBtn.addEventListener("click", async () => {
-        if (isMicCapturing) {
-            stopAudioCapture();
-            return;
-        }
-
-        try {
-            chrome.tabs.create({
-                url: 'chrome-extension://' + chrome.runtime.id + '/audio_capture.html',
-                active: false
-            }, function (tab) {
-                isMicCapturing = true;
-                captureMicBtn.innerText = "⏹ Stop Mic Capture";
-                document.getElementById("mic-status").innerText = "🎙️ Microphone is live — capturing audio...";
-            });
-        } catch (e) {
-            console.error("Mic error", e);
-            document.getElementById("mic-status").innerText = "Error accessing mic: " + e.message;
-        }
+    document.getElementById("capture-mic-btn").addEventListener("click", () => {
+        if (isMicCapturing) { stopAudioCapture(); return; }
+        chrome.tabs.create({
+            url: "chrome-extension://" + chrome.runtime.id + "/audio_capture.html",
+            active: false
+        }, () => {
+            isMicCapturing = true;
+            document.getElementById("capture-mic-btn").textContent = "Stop Mic Capture";
+            document.getElementById("mic-status").textContent = "Microphone is live — capturing audio...";
+        });
     });
 
     function stopAudioCapture() {
-        chrome.tabs.query({ url: 'chrome-extension://' + chrome.runtime.id + '/audio_capture.html' }, function (tabs) {
+        chrome.tabs.query({ url: "chrome-extension://" + chrome.runtime.id + "/audio_capture.html" }, (tabs) => {
             tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, { action: "stop_capture" }).catch(() => { });
+                chrome.tabs.sendMessage(tab.id, { action: "stop_capture" }).catch(() => {});
                 setTimeout(() => chrome.tabs.remove(tab.id), 200);
             });
         });
         isMicCapturing = false;
-        captureMicBtn.innerText = "🎤 Capture Mic Audio";
-        document.getElementById("mic-status").innerText = "Stopped.";
+        document.getElementById("capture-mic-btn").textContent = "Capture Mic Audio";
+        document.getElementById("mic-status").textContent = "Stopped.";
     }
 
-    sendClaimBtn.addEventListener("click", () => {
-        const claimText = manualClaimInput.value.trim();
+    document.getElementById("send-claim-btn").addEventListener("click", () => {
+        const claimText = document.getElementById("manual-claim-input").value.trim();
         if (!claimText) return alert("Please enter a claim to test");
-
         chrome.runtime.sendMessage({ action: "audio_data", data: claimText, isAudio: false });
-        document.getElementById("ai-insights").innerText = "Sent: " + claimText + "\nWaiting for backend...";
-        manualClaimInput.value = "";
+        document.getElementById("ai-insights").textContent = "Sent: " + claimText + "\nWaiting for backend...";
+        document.getElementById("manual-claim-input").value = "";
     });
 
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        if (request.type === "ws_status") {
-            updateWsDot(request.connected);
-        } else if (request.type === "transcript") {
+    chrome.runtime.onMessage.addListener((request) => {
+        if (request.type === "ws_status") updateWsDot(request.connected);
+        else if (request.type === "transcript") {
             const tBox = document.getElementById("live-transcript");
-            if (tBox.innerText.includes("Start speaking...")) tBox.innerText = "";
-            tBox.innerText += " " + request.text;
+            if (tBox.querySelector("em")) tBox.textContent = "";
+            tBox.textContent += " " + request.text;
         } else if (request.type === "insight") {
-            document.getElementById("ai-insights").innerText = request.message || "Insight received.";
-            document.getElementById("follow-up-question").innerText = request.follow_up || "None";
+            document.getElementById("ai-insights").textContent = request.message || "Insight received.";
+            document.getElementById("follow-up-question").textContent = request.follow_up || "None";
         } else if (request.type === "heartbeat") {
-            const insightBox = document.getElementById("ai-insights");
-            if (insightBox.innerText.includes("Waiting for backend...")) {
-                insightBox.innerText = insightBox.innerText.replace("Waiting for backend...", "Processed (No actionable claims detected).");
+            const b = document.getElementById("ai-insights");
+            if (b.textContent.includes("Waiting for backend...")) {
+                b.textContent = b.textContent.replace("Waiting for backend...", "Processed (No actionable claims detected).");
             }
         } else if (request.type === "mic_status") {
-            document.getElementById("mic-status").innerText = request.message || "";
+            document.getElementById("mic-status").textContent = request.message || "";
         }
     });
 
-    function updateWsDot(isConnected) {
-        if (isConnected) {
-            wsStatusDot.classList.add("active");
-            wsStatusDot.title = "Connected";
-        } else {
-            wsStatusDot.classList.remove("active");
-            wsStatusDot.title = "Disconnected";
-        }
+    function updateWsDot(connected) {
+        const dot = document.getElementById("ws-status");
+        if (connected) { dot.classList.add("active"); dot.title = "Connected"; }
+        else { dot.classList.remove("active"); dot.title = "Disconnected"; }
     }
 });
