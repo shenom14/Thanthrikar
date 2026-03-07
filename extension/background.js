@@ -8,8 +8,8 @@
  * - Push real-time insights to popup.html.
  */
 
-const API_BASE_URL = "http://127.0.0.1:8001";
-const WS_BASE_URL = "ws://127.0.0.1:8001";
+const API_BASE_URL = "http://127.0.0.1:8000";
+const WS_BASE_URL = "ws://127.0.0.1:8000";
 
 let socket = null;
 let currentSessionId = null;
@@ -20,6 +20,41 @@ let audioQueue = [];
 
 // Listen for messages from popup or content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // --- PREP MODE HANDLERS ---
+    if (request.action === "generate_questions") {
+        fetch(`${API_BASE_URL}/api/v1/generate-questions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request.payload)
+        })
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                return res.json();
+            })
+            .then(data => sendResponse({ success: true, data }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true; // Keep channel open
+    }
+
+    if (request.action === "generate_followup") {
+        fetch(`${API_BASE_URL}/api/v1/generate-followup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                current_question: request.current_question,
+                candidate_context: request.candidate_context
+            })
+        })
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                return res.json();
+            })
+            .then(data => sendResponse({ success: true, follow_up_question: data.follow_up_question }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
+    }
+
+    // --- LIVE MODE HANDLERS ---
     if (request.action === "start_session") {
         startSession(request.candidateId)
             .then(sessionData => sendResponse({ success: true, session: sessionData }))

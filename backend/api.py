@@ -45,6 +45,45 @@ app.add_middleware(
 # Mount all unified REST routes
 app.include_router(api_router)
 
+# --- Legacy Question Generation Endpoints (Prep Mode) ---
+from pydantic import BaseModel
+from typing import Optional
+
+class CandidateRequest(BaseModel):
+    name: str
+    role: str
+    years_experience: int
+    resume_text: str
+    linkedin_url: Optional[str] = None
+    github_username: Optional[str] = None
+
+class FollowUpRequest(BaseModel):
+    current_question: str
+    candidate_context: Optional[str] = ""
+
+@app.post("/api/v1/generate-questions")
+async def api_generate_questions(request: CandidateRequest):
+    from agents.legacy_question_generator import generate_candidate_questions
+    try:
+        candidate_data = request.dict()
+        return generate_candidate_questions(candidate_data)
+    except Exception as e:
+        logger.error(f"Failed to generate questions: {e}")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/generate-followup")
+async def api_generate_followup(request: FollowUpRequest):
+    from agents.legacy_question_generator import generate_followup_question
+    try:
+        follow_up = generate_followup_question(request.current_question, request.candidate_context)
+        return {"follow_up_question": follow_up}
+    except Exception as e:
+        logger.error(f"Failed to generate follow up: {e}")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+# --------------------------------------------------------
+
 # Singleton services for all WS connections
 streaming_pipeline = StreamingPipeline()
 transcriber_service = StreamingTranscriber()

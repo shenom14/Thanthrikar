@@ -1,0 +1,236 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview Copilot</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            width: 350px;
+            padding: 15px;
+            background-color: #f7f9fc;
+            color: #333;
+            margin: 0;
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        
+        /* Tab Styles */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ccc;
+            margin-bottom: 12px;
+        }
+        
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 8px 0;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #7f8c8d;
+            border-bottom: 2px solid transparent;
+        }
+        
+        .tab:hover {
+            color: #34495e;
+        }
+        
+        .tab.active {
+            color: #2980b9;
+            border-bottom: 2px solid #2980b9;
+        }
+
+        /* Generic views */
+        .mode-view {
+            display: none;
+        }
+        
+        .mode-view.active {
+            display: block;
+        }
+
+        .section {
+            background-color: white;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        input[type="text"], input[type="number"], textarea, select {
+            width: calc(100% - 16px);
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            color: #34495e;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #2980b9;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        button:hover {
+            background-color: #3498db;
+        }
+        
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .question-category {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: #7f8c8d;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .question-text {
+            font-size: 1rem;
+            color: #2c3e50;
+            font-weight: 600;
+            margin-bottom: 15px;
+            min-height: 80px;
+        }
+
+        .question-reasoning {
+            font-size: 0.85rem;
+            color: #e67e22;
+            padding: 8px;
+            background-color: #fdf2e9;
+            border-left: 3px solid #e67e22;
+            border-radius: 4px;
+        }
+        
+        .error-msg {
+            color: #c0392b;
+            font-size: 0.85rem;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .followup-stack {
+            margin-top: 12px;
+            border-top: 1px solid #ecf0f1;
+            padding-top: 10px;
+        }
+
+        .followup-item {
+            font-size: 0.9rem;
+            color: #16a085;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            background-color: #e8f6f3;
+            border-left: 3px solid #16a085;
+            border-radius: 4px;
+        }
+
+        .followup-item strong {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: #1abc9c;
+        }
+
+    </style>
+</head>
+
+<body>
+    <h2>AI Interview Copilot</h2>
+
+    <!-- Main Container shown before questions are generated -->
+    <div id="setup-container">
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" id="tab-airtable">Airtable Data</div>
+            <div class="tab" id="tab-manual">Manual Entry</div>
+        </div>
+
+        <!-- Preloaded Candidates Mode (Airtable Simulation) -->
+        <div id="view-airtable" class="mode-view active">
+            <div class="section">
+                <label>Select Scheduled Candidate</label>
+                <select id="airtable-select">
+                    <!-- Options populated by JS -->
+                </select>
+                
+                <div style="font-size: 0.8rem; color: #7f8c8d; margin-bottom: 10px; font-style: italic;">
+                    Candidate data (Resume & profiles) will automatically be loaded from Airtable CRM.
+                </div>
+                
+                <button id="generate-btn-airtable">Generate Questions from CRM</button>
+                <div id="error-msg-airtable" class="error-msg"></div>
+            </div>
+        </div>
+
+        <!-- Direct Input Mode -->
+        <div id="view-manual" class="mode-view">
+            <div class="section">
+                <label>Candidate Name</label>
+                <input type="text" id="candidate-name" placeholder="John Smith" />
+                
+                <label>Role</label>
+                <input type="text" id="candidate-role" placeholder="Backend Engineer" />
+                
+                <label>Years Experience</label>
+                <input type="number" id="candidate-exp" placeholder="5" />
+                
+                <label>LinkedIn URL (Optional)</label>
+                <input type="text" id="candidate-linkedin" placeholder="https://linkedin.com/in/..." />
+                
+                <label>GitHub Username (Optional)</label>
+                <input type="text" id="candidate-github" placeholder="johnsmith" />
+                
+                <label>Resume Snippet</label>
+                <textarea id="candidate-resume" rows="3" placeholder="Paste resume..."></textarea>
+                
+                <button id="generate-btn-manual">Generate Question Set</button>
+                <div id="error-msg-manual" class="error-msg"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Interview Flashcard View (Hidden initially) -->
+    <div id="interview-view" style="display: none;">
+        <div class="section">
+            <div id="q-counter" style="text-align: right; font-size: 0.8rem; color: #95a5a6; margin-bottom: 10px;">Question 1 / X</div>
+            <div class="question-category" id="q-category">Category</div>
+            <div class="question-text" id="q-text">Loading...</div>
+            <div class="question-reasoning" id="q-reasoning">Reasoning...</div>
+            <div id="followup-stack" class="followup-stack"></div>
+        </div>
+        
+        <button id="next-btn">Next Question</button>
+        <button id="followup-btn">Generate Follow-up Question</button>
+        <button id="reset-btn" style="background-color: #7f8c8d; margin-top: 10px;">End Interview</button>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
