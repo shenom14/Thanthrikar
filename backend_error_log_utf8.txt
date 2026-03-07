@@ -1,0 +1,127 @@
+﻿2026-03-07 04:49:09 - [INFO] - backend.api - Database instantiated successfully.
+2026-03-07 04:49:09 - [INFO] - rag.embeddings - Attempting load of Embedding Model: all-MiniLM-L6-v2 within 15s timeout.
+2026-03-07 04:49:16 - [INFO] - rag.embeddings - Embedding Model loaded successfully.
+Could not connect to ChromaDB or collection 'resumes' does not exist. Error: Collection [resumes] does not exist
+2026-03-07 04:49:16 - [INFO] - services.streaming_pipeline - Initializing StreamingPipeline with LLM-backed agents.
+2026-03-07 04:49:16 - [INFO] - agents.planner - Initializing PlannerAgent with model: llama3-70b-8192
+2026-03-07 04:49:16 - [ERROR] - services.streaming_pipeline - Failed to initialize LLM-backed agents; running StreamingPipeline in no-LLM mode instead. Error: The api_key client option must be set either by passing api_key to the client or by setting the GROQ_API_KEY environment variable
+2026-03-07 04:49:29 - [INFO] - services.interview_service - Starting new interview session for candidate: test
+2026-03-07 04:49:29 - [ERROR] - backend.routers.interviews - Unexpected error while starting interview for candidate test: (sqlite3.OperationalError) no such column: candidates.resume_file
+[SQL: SELECT candidates.id AS candidates_id, candidates.name AS candidates_name, candidates.role AS candidates_role, candidates.experience AS candidates_experience, candidates.resume_file AS candidates_resume_file, candidates.resume_processed AS candidates_resume_processed 
+FROM candidates 
+WHERE candidates.id = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('test', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Traceback (most recent call last):
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\default.py", line 942, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: candidates.resume_file
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\hackus\Thanthrikar\backend\routers\interviews.py", line 23, in start_interview_session
+    return service.start_session(session_data.candidate_id)
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\hackus\Thanthrikar\services\interview_service.py", line 21, in start_session
+    candidate = self.db.query(models.Candidate).filter(models.Candidate.id == candidate_id).first()
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\orm\query.py", line 2759, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\orm\query.py", line 2858, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\orm\session.py", line 2365, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\orm\session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\base.py", line 1416, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\sql\elements.py", line 523, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\base.py", line 1638, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\base.py", line 1843, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\base.py", line 1983, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\base.py", line 2352, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\jithu\anaconda3\Lib\site-packages\sqlalchemy\engine\default.py", line 942, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: candidates.resume_file
+[SQL: SELECT candidates.id AS candidates_id, candidates.name AS candidates_name, candidates.role AS candidates_role, candidates.experience AS candidates_experience, candidates.resume_file AS candidates_resume_file, candidates.resume_processed AS candidates_resume_processed 
+FROM candidates 
+WHERE candidates.id = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('test', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+INFO:     127.0.0.1:54431 - "POST /interviews/start HTTP/1.1" 500 Internal Server Error

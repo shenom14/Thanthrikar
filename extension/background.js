@@ -8,14 +8,15 @@
  * - Push real-time insights to popup.html.
  */
 
-const API_BASE_URL = "http://localhost:8000";
-const WS_BASE_URL = "ws://localhost:8000";
+const API_BASE_URL = "http://127.0.0.1:8001";
+const WS_BASE_URL = "ws://127.0.0.1:8001";
 
 let socket = null;
 let currentSessionId = null;
 let isConnecting = false;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = 15;
+let audioQueue = [];
 
 // Listen for messages from popup or content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -89,12 +90,19 @@ function connectWebSocket() {
     console.log(`[Copilot] Connecting WebSocket for session ${currentSessionId}...`);
 
     socket = new WebSocket(`${WS_BASE_URL}/ws/interviewStream/${currentSessionId}`);
+    socket.binaryType = "arraybuffer";
 
     socket.onopen = () => {
         console.log("[Copilot] WebSocket connected.");
         isConnecting = false;
         reconnectAttempts = 0;
         notifyPopup({ type: "ws_status", connected: true });
+
+        // Flush any queued audio data
+        while (audioQueue.length > 0) {
+            let queued = audioQueue.shift();
+            sendRawToSocket(queued);
+        }
     };
 
     socket.onmessage = (event) => {
@@ -108,39 +116,66 @@ function connectWebSocket() {
 
     socket.onclose = (event) => {
         isConnecting = false;
-        console.log(`[Copilot] WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
+        console.log(`[Copilot] WebSocket closed. Code: ${event.code}, Reason: ${event.reason || "Server unavailable"}`);
         notifyPopup({ type: "ws_status", connected: false });
 
         if (currentSessionId && event.code !== 1000) {
             handleReconnect();
+        } else {
+            // Clean close or session ended intentionally
+            socket = null;
         }
     };
 
     socket.onerror = (error) => {
-        console.error("[Copilot] WebSocket error:", error);
+        isConnecting = false;
+        console.warn("[Copilot] WebSocket connection issue. Retrying in background if active...");
     };
 }
 
 function handleReconnect() {
+    // Prevent overlapping reconnect timers
+    if (isConnecting) return;
+
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000); // Exponential backoff max 10s
         console.log(`[Copilot] Reconnecting in ${delay}ms... (Attempt ${reconnectAttempts})`);
         setTimeout(connectWebSocket, delay);
     } else {
-        console.error("[Copilot] Max explicit reconnect attempts reached. Stream offline.");
+        console.warn("[Copilot] Max explicit reconnect attempts reached. Stream offline.");
+        notifyPopup({ type: "ws_status", connected: false, error: "Connection lost." });
     }
 }
 
-function sendAudioToWebSocket(audioBuffer) {
+/**
+ * Converts an audio data payload to an ArrayBuffer and sends it over the WebSocket.
+ * 
+ * audio_capture.js sends Int16Array data serialized as a plain JS Array (because 
+ * chrome.runtime.sendMessage cannot transfer typed arrays directly). We reconstruct
+ * the Int16Array and send the underlying ArrayBuffer as a binary WebSocket frame.
+ * 
+ * Plain string data (e.g. from the manual claim input) is sent as a text frame.
+ */
+function sendAudioToWebSocket(audioData) {
     if (socket && socket.readyState === WebSocket.OPEN) {
-        // For the current prototype, treat the payload as a text transcript chunk.
-        // In a future iteration this can be upgraded to send raw audio bytes to a
-        // dedicated STT endpoint, which in turn feeds transcript text into the
-        // StreamingPipeline on the backend.
-        if (typeof audioBuffer === "string") {
-            socket.send(audioBuffer);
-        }
+        sendRawToSocket(audioData);
+    } else {
+        // Queue data if the connection is dropped to prevent data loss
+        audioQueue.push(audioData);
+    }
+}
+
+function sendRawToSocket(data) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+    if (typeof data === "string") {
+        // Text data (manual claims or transcript text)
+        socket.send(data);
+    } else if (Array.isArray(data)) {
+        // Int16Array data from audio_capture.js, serialized as plain Array
+        const int16 = new Int16Array(data);
+        socket.send(int16.buffer);
     }
 }
 

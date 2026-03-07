@@ -15,6 +15,7 @@ from config.logger import setup_logger
 # Database and Routes
 from backend.database import engine, Base, SessionLocal
 from backend.routes import api_router
+from backend.services.transcriber import StreamingTranscriber
 from services.streaming_pipeline import StreamingPipeline
 
 logger = setup_logger(__name__)
@@ -44,8 +45,22 @@ app.add_middleware(
 # Mount all unified REST routes
 app.include_router(api_router)
 
-# Singleton streaming pipeline for all WS connections
+# Singleton services for all WS connections
 streaming_pipeline = StreamingPipeline()
+transcriber_service = StreamingTranscriber()
+
+
+@app.on_event("startup")
+async def startup_warmup():
+    """Pre-warm the AI pipeline in the background so the first request is instant."""
+    import asyncio
+    asyncio.create_task(streaming_pipeline._init_components())
+    logger.info("Background AI pipeline warm-up task started.")
+
+
+@app.get("/raw_health")
+async def raw_health():
+    return {"status": "ok"}
 
 
 @app.websocket("/ws/interviewStream/{session_id}")
@@ -67,18 +82,35 @@ async def interview_stream(websocket: WebSocket, session_id: int):
     logger.info(f"WebSocket client connected for session {session_id}")
 
     db = SessionLocal()
+    
+    # Each WebSocket gets its own independent speech recognizer state tracker
+    recognizer = transcriber_service.create_recognizer() if transcriber_service.enabled else None
 
     try:
         while True:
-            data = await websocket.receive_text()
+            data_event = await websocket.receive()
+            text_chunk = ""
+            
+            if "bytes" in data_event:
+                if recognizer:
+                    loop = asyncio.get_running_loop()
+                    text_chunk = await loop.run_in_executor(
+                        None, transcriber_service.process_chunk, recognizer, data_event["bytes"]
+                    )
+            elif "text" in data_event:
+                text_chunk = data_event["text"]
+                
+            if not text_chunk:
+                continue
+                
             logger.debug(
-                f"Received WS payload for session {session_id} length: {len(data)}"
+                f"Processing transcript chunk for session {session_id} length: {len(text_chunk)}"
             )
 
             # Process the transcript chunk through the streaming pipeline.
             try:
                 messages = await streaming_pipeline.handle_transcript_chunk(
-                    db=db, session_id=session_id, transcript_chunk=data
+                    db=db, session_id=session_id, transcript_chunk=text_chunk
                 )
             except Exception as e:
                 logger.error(f"Streaming pipeline error for session {session_id}: {e}")
@@ -110,4 +142,4 @@ if __name__ == "__main__":
     logger.info(
         f"Starting uvicorn server for {settings.APP_NAME} in {settings.ENVIRONMENT} mode."
     )
-    uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.api:app", host="0.0.0.0", port=8001, reload=True)

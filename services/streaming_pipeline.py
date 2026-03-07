@@ -29,38 +29,63 @@ class StreamingPipeline:
     def __init__(self) -> None:
         """
         Initialize the streaming pipeline.
-
-        We attempt to enable the full LLM-backed path only if a usable Groq API
-        key is configured and the agents can be constructed successfully.
-        Otherwise we gracefully fall back to a no-LLM mode that never attempts
-        external API calls and simply stores raw transcript insights.
+        We postpone creating the actual LLM agents and Retriever until the first request
+        in order to avoid blocking the Uvicorn ASGI event loop during import.
         """
         import os
-
         self.llm_enabled = False
-        self.retriever = ResumeRetriever()
-
+        self._init_attempted = False
+        self.retriever = None
+        self.planner = None
+        self.verifier = None
+        self.fact_checker = None
+        self.qgen = None
+        
         # Prefer explicit GROQ_API_KEY from env; fall back to settings value.
-        groq_key = os.getenv("GROQ_API_KEY") or settings.GROQ_API_KEY
+        self.groq_key = os.getenv("GROQ_API_KEY") or settings.GROQ_API_KEY
+        if self.groq_key:
+            os.environ["GROQ_API_KEY"] = self.groq_key
 
-        if not groq_key:
+    async def _init_components(self):
+        if self._init_attempted:
+            return
+        self._init_attempted = True
+
+        if not self.groq_key:
             logger.warning(
                 "GROQ_API_KEY not set; StreamingPipeline will run in 'no-LLM' mode. "
                 "Insights will be stored as raw transcript snippets without verification."
             )
-            self.planner = None
-            self.verifier = None
-            self.fact_checker = None
-            self.qgen = None
             return
 
         try:
-            logger.info("Initializing StreamingPipeline with LLM-backed agents.")
-            self.planner = PlannerAgent()
-            self.verifier = ResumeVerifierAgent()
-            self.fact_checker = FactCheckerAgent()
-            self.qgen = QuestionGeneratorAgent()
+            logger.info("Lazy-initializing StreamingPipeline with LLM-backed agents...")
+            
+            import asyncio
+            loop = asyncio.get_running_loop()
+            
+            # Run ALL heavy constructors in PARALLEL instead of sequentially
+            # This cuts cold start from ~2min to ~15s (the slowest single component)
+            results = await asyncio.gather(
+                loop.run_in_executor(None, ResumeRetriever),
+                loop.run_in_executor(None, PlannerAgent),
+                loop.run_in_executor(None, ResumeVerifierAgent),
+                loop.run_in_executor(None, FactCheckerAgent),
+                loop.run_in_executor(None, QuestionGeneratorAgent),
+                return_exceptions=True,
+            )
+            
+            # Check for any failures
+            errors = [r for r in results if isinstance(r, Exception)]
+            if errors:
+                for e in errors:
+                    logger.error(f"Agent init error: {e}")
+                raise errors[0]
+            
+            self.retriever, self.planner, self.verifier, self.fact_checker, self.qgen = results
+            
             self.llm_enabled = True
+            logger.info("StreamingPipeline LLM components loaded successfully.")
         except Exception as exc:
             logger.error(
                 f"Failed to initialize LLM-backed agents; "
@@ -77,6 +102,7 @@ class StreamingPipeline:
         session_id: int,
         transcript_chunk: str,
     ) -> List[Dict[str, Any]]:
+        await self._init_components()
         """
         Process a single transcript chunk for a given session and return
         WebSocket messages to push back to the client.

@@ -10,6 +10,7 @@ class Candidate(Base):
     name = Column(String, index=True)
     role = Column(String)
     experience = Column(String)
+    resume_file = Column(String)
     resume_processed = Column(Boolean, default=False)
     
     sessions = relationship("InterviewSession", back_populates="candidate")
