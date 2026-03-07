@@ -22,10 +22,10 @@ class Settings(BaseSettings):
     CHROMA_DB_PATH: str = os.path.join(BASE_DIR, "chroma_db")
     
     # LLM Config
-    PLANNER_MODEL: str = "llama3-70b-8192"
-    VERIFIER_MODEL: str = "llama3-70b-8192"
-    FACT_CHECKER_MODEL: str = "llama3-70b-8192"
-    QGEN_MODEL: str = "llama3-70b-8192"
+    PLANNER_MODEL: str = "llama-3.1-70b-versatile"
+    VERIFIER_MODEL: str = "llama-3.1-70b-versatile"
+    FACT_CHECKER_MODEL: str = "llama-3.1-70b-versatile"
+    QGEN_MODEL: str = "llama-3.1-70b-versatile"
     
     # RAG Config
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
