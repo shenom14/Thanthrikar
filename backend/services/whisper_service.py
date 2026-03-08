@@ -15,25 +15,33 @@ class AudioTranscriptionService:
         self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
         logger.info("Whisper model loaded successfully.")
 
+    def is_speech_present(self, audio_bytes: bytes, threshold=0.002) -> bool:
+        """
+        Simple energy-based Voice Activity Detection.
+        Returns True if the audio chunk has enough volume to be considered speech.
+        """
+        if len(audio_bytes) == 0:
+            return False
+            
+        # Convert bytes to int16 array
+        samples = np.frombuffer(audio_bytes, np.int16).astype(np.float32) / 32768.0
+        
+        # Calculate Root Mean Square energy
+        rms_energy = np.sqrt(np.mean(samples**2))
+        return bool(rms_energy > threshold)
+
     def transcribe_audio_buffer(self, audio_bytes: bytes) -> str:
         """
-        Takes an accumulated buffer of WebM/Opus audio bytes from the browser,
-        decodes it into standard 16kHz mono PCM using pydub, and runs Whisper.
+        Takes raw 16kHz mono PCM bytes directly from the browser's AudioContext
+        and runs them through Whisper without ffmpeg overhead.
         """
         try:
-            # Pydub can read WebM/Opus bytes directly via ffmpeg under the hood
-            audio_io = io.BytesIO(audio_bytes)
-            audio_segment = AudioSegment.from_file(audio_io, codec="opus")
-            
-            # Whisper expects 16kHz mono
-            audio_segment = audio_segment.set_frame_rate(16000).set_channels(1)
-            
-            # Convert to numpy array of float32 expected by faster-whisper
-            samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32)
-            samples = samples / 32768.0 # Normalize 16-bit PCM to [-1.0, 1.0]
+            # The browser now sends pure 16-bit PCM, no WebM decoding needed!
+            # Convert raw bytes directly to numpy float32 expected by faster-whisper
+            samples = np.frombuffer(audio_bytes, np.int16).astype(np.float32) / 32768.0
             
             # Transcribe the accumulated audio
-            segments, info = self.model.transcribe(samples, beam_size=1, word_timestamps=False)
+            segments, info = self.model.transcribe(samples, beam_size=1, word_timestamps=False, condition_on_previous_text=False)
             
             text = " ".join([segment.text for segment in segments]).strip()
             return text

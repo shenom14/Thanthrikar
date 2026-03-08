@@ -720,43 +720,28 @@ document.addEventListener("DOMContentLoaded", () => {
         
         if (isIntelligenceActive) {
             // Stop logic
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                if (tabs[0]) {
-                    chrome.tabs.sendMessage(tabs[0].id, { action: "stop_audio_capture" }, (res) => {
-                        isIntelligenceActive = false;
-                        btn.innerHTML = "&#127908; Start Audio Transcription";
-                        btn.classList.replace("btn-danger", "btn-primary");
-                        statusEl.textContent = "Audio capture stopped.";
-                    });
-                }
+            chrome.runtime.sendMessage({ action: "stop_tab_capture" }, (res) => {
+                isIntelligenceActive = false;
+                btn.innerHTML = "&#127908; Start Audio Transcription";
+                btn.classList.replace("btn-danger", "btn-primary");
+                statusEl.textContent = "Audio capture stopped.";
             });
             return;
         }
         
         // Start logic
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (!tabs || tabs.length === 0) {
-                statusEl.textContent = "Error: No active tab found.";
-                return;
+        statusEl.textContent = "Capturing meeting tab audio...";
+        chrome.runtime.sendMessage({ action: "start_tab_capture" }, (response) => {
+            if (response && response.success) {
+                isIntelligenceActive = true;
+                btn.innerHTML = "&#10060; Stop Audio Transcription";
+                btn.classList.replace("btn-primary", "btn-danger");
+                statusEl.textContent = "Listening to meeting tab audio...";
+            } else {
+                let errStr = (response && response.error) ? response.error : "Unknown error";
+                statusEl.textContent = "Error: " + errStr;
+                console.error("Tab capture failed", errStr);
             }
-            
-            const activeTab = tabs[0];
-            statusEl.textContent = "Requesting microphone access...";
-            
-            // Send start command
-            chrome.tabs.sendMessage(activeTab.id, { action: "start_audio_capture" }, (response) => {
-                if (chrome.runtime.lastError) {
-                    statusEl.textContent = "Error: Please refresh the page. Extension not loaded.";
-                    console.error("Content script not found", chrome.runtime.lastError);
-                } else if (response && response.success) {
-                    isIntelligenceActive = true;
-                    btn.innerHTML = "&#10060; Stop Audio Transcription";
-                    btn.classList.replace("btn-primary", "btn-danger");
-                    statusEl.textContent = "Streaming audio to Whisper engine...";
-                } else if (response && response.error) {
-                    statusEl.textContent = "Error: " + response.error;
-                }
-            });
         });
     });
 
@@ -766,8 +751,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (isIntelligenceActive) {
             document.getElementById("start-intelligence-btn").click(); // toggle off
         }
-        document.getElementById("live-transcript").innerHTML = "<em>Start speaking...</em>";
-        // Call the rest of the end logic (the existing event listener covers the background websocket)
+        document.getElementById("live-transcript").innerHTML = "<em>Waiting for meeting audio...</em>";
     });
 
     chrome.runtime.onMessage.addListener((request) => {

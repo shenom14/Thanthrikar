@@ -19,6 +19,12 @@ from services.streaming_pipeline import StreamingPipeline
 
 logger = setup_logger(__name__)
 
+# Track active websockets by session ID for direct backend-to-frontend routing
+active_sessions: dict[int, WebSocket] = {}
+
+# Store the main asyncio event loop so background threads can safely schedule coroutines
+main_event_loop: asyncio.AbstractEventLoop | None = None
+
 # Initialize DB tables
 try:
     Base.metadata.create_all(bind=engine)
@@ -96,8 +102,11 @@ streaming_pipeline = StreamingPipeline()
 
 @app.on_event("startup")
 async def startup_warmup():
-    """Pre-warm the AI pipeline in the background so the first request is instant."""
-    import asyncio
+    """Pre-warm the AI pipeline and capture the main event loop for thread-safe async scheduling."""
+    global main_event_loop
+    main_event_loop = asyncio.get_running_loop()
+    logger.info(f"[Startup] Main event loop captured: {main_event_loop}")
+    
     asyncio.create_task(streaming_pipeline._init_components())
     logger.info("Background AI pipeline warm-up task started.")
 
@@ -126,6 +135,7 @@ async def interview_stream(websocket: WebSocket, session_id: int):
 
     await websocket.accept()
     logger.info(f"WebSocket client connected for session {session_id}")
+    active_sessions[session_id] = websocket
 
     db = SessionLocal()
 
@@ -149,6 +159,8 @@ async def interview_stream(websocket: WebSocket, session_id: int):
     except Exception as e:
         logger.error(f"WebSocket Session {session_id} Error/Disconnect: {e}")
     finally:
+        if session_id in active_sessions:
+            del active_sessions[session_id]
         db.close()
         try:
             await websocket.close()

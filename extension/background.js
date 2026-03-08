@@ -1,11 +1,11 @@
 /**
  * background.js
  * 
- * Service Worker for the AI Interview Copilot.
+ * Service Worker for the AI Interview Copilot (Manifest V3).
  * Responsibilities:
- * - Communicate with the FastAPI backend over REST/WebSockets.
- * - Manage robust WebSocket reconnects.
- * - Push real-time insights to popup.html.
+ * - Manage tab audio capture via chrome.tabCapture + Offscreen Document
+ * - Communicate with the FastAPI backend over REST/WebSockets
+ * - Push real-time insights and transcripts to popup.html
  */
 
 const API_BASE_URL = "http://127.0.0.1:8002";
@@ -17,9 +17,13 @@ let isConnecting = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 15;
 let textQueue = [];
-let audioSocket = null;
 
-// Listen for messages from popup or content scripts
+// Track offscreen document state
+let offscreenCreated = false;
+
+// ====================================================================
+//  Message Router
+// ====================================================================
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // --- PREP MODE HANDLERS ---
     if (request.action === "generate_questions") {
@@ -34,7 +38,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             })
             .then(data => sendResponse({ success: true, data }))
             .catch(err => sendResponse({ success: false, error: err.message }));
-        return true; // Keep channel open
+        return true;
     }
 
     if (request.action === "generate_followup") {
@@ -60,7 +64,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         startSession(request.candidateId)
             .then(sessionData => sendResponse({ success: true, session: sessionData }))
             .catch(err => sendResponse({ success: false, error: err.message }));
-        return true; // Keep channel open for async response
+        return true;
     }
 
     if (request.action === "end_session") {
@@ -73,11 +77,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "meet_transcript") {
         const text = request.payload.text;
         const speaker = request.payload.speaker || "Candidate";
-        
-        // 1) Immediately relay transcript to Popup UI so it shows up in the Live Transcript box
         notifyPopup({ type: "transcript", text: `${speaker}: ${text}` });
-        
-        // 2) Send to backend over WebSocket for AI analysis
         if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(text);
         } else {
@@ -94,72 +94,131 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
     }
 
-    if (request.action === "start_audio_socket") {
-        if (!audioSocket || audioSocket.readyState !== WebSocket.OPEN) {
-            audioSocket = new WebSocket(`${WS_BASE_URL}/audio/stream`);
-            audioSocket.binaryType = "arraybuffer";
-            
-            let sentenceBuffer = ""; // Stores partial transcript
-            
-            audioSocket.onopen = () => console.log("[Copilot] Audio WebSocket connected.");
-            audioSocket.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === "transcript") {
-                        // 1. Instantly display partial text in UI (Live Transcription)
-                        notifyPopup({ type: "transcript", text: `Microphone: ${data.text}` });
-                        
-                        // 2. Accumulate for AI Processing
-                        // Only send to LangChain when a complete sentence boundary is met
-                        sentenceBuffer += data.text + " ";
-                        if (/[.?!]\s*$/.test(data.text)) {
-                            // Boundary hit! Send complete sentence
-                            let finalizedSentence = sentenceBuffer.trim();
-                            sentenceBuffer = ""; // Reset for next sentence
-                            
-                            if (socket && socket.readyState === WebSocket.OPEN) {
-                                socket.send(finalizedSentence);
-                            } else {
-                                textQueue.push(finalizedSentence);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error(e);
-                }
-            };
-            audioSocket.onerror = (err) => console.error("[Copilot] Audio WebSocket Error:", err);
-            audioSocket.onclose = () => {
-                console.log("[Copilot] Audio WebSocket closed.");
-                audioSocket = null;
-            };
-        }
-        sendResponse({ success: true });
+    // --- TAB AUDIO CAPTURE ---
+    if (request.action === "start_tab_capture") {
+        startTabCapture()
+            .then(() => sendResponse({ success: true }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
     }
 
-    if (request.action === "audio_chunk") {
-        if (audioSocket && audioSocket.readyState === WebSocket.OPEN) {
-            const binaryString = atob(request.data);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            audioSocket.send(bytes.buffer);
-        }
+    if (request.action === "stop_tab_capture") {
+        stopTabCapture()
+            .then(() => sendResponse({ success: true }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
     }
-    
-    if (request.action === "stop_audio_socket") {
-        if (audioSocket && audioSocket.readyState === WebSocket.OPEN) {
-            audioSocket.close();
-        }
-        audioSocket = null;
-        sendResponse({ success: true });
-        return true;
+
+    // --- FORWARDED MESSAGES FROM OFFSCREEN (transcript/insight) ---
+    if (request.type === "transcript" || request.type === "insight" || request.type === "heartbeat") {
+        // The offscreen document forwards backend WebSocket messages here.
+        // Relay them to the popup UI.
+        notifyPopup(request);
     }
 });
+
+// ====================================================================
+//  Tab Audio Capture (Offscreen Document Architecture)
+// ====================================================================
+
+async function startTabCapture() {
+    console.log("[Copilot] Starting tab audio capture...");
+
+    // 0. Clean up any stale offscreen document from a previous failed attempt
+    if (offscreenCreated) {
+        try {
+            await chrome.offscreen.closeDocument();
+            console.log("[Copilot] Closed stale offscreen document.");
+        } catch (e) {
+            // Ignore — may not exist
+        }
+        offscreenCreated = false;
+    }
+
+    // 1. Get the active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+        throw new Error("No active tab found. Please open a meeting tab first.");
+    }
+    console.log(`[Copilot] Active tab: ${tab.id} — ${tab.title}`);
+
+    // 2. Get a media stream ID for the tab
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+    console.log("[Copilot] Got stream ID:", streamId);
+
+    // 3. Create the offscreen document
+    try {
+        await chrome.offscreen.createDocument({
+            url: "offscreen.html",
+            reasons: ["USER_MEDIA"],
+            justification: "Tab audio capture for interview transcription"
+        });
+        offscreenCreated = true;
+        console.log("[Copilot] Offscreen document created.");
+    } catch (e) {
+        if (e.message && e.message.includes("Only a single offscreen")) {
+            offscreenCreated = true;
+            console.log("[Copilot] Offscreen document already exists.");
+        } else {
+            throw e;
+        }
+    }
+
+    // 4. Wait for offscreen to be ready, then send the stream ID
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    try {
+        const response = await chrome.runtime.sendMessage({
+            target: "offscreen",
+            action: "start_offscreen_capture",
+            streamId: streamId,
+            sessionId: currentSessionId
+        });
+        if (response && !response.success) {
+            throw new Error(response.error || "Offscreen capture failed");
+        }
+    } catch (err) {
+        console.error("[Copilot] Error sending to offscreen:", err);
+        // Still might work — offscreen may have received it
+    }
+
+    console.log("[Copilot] Tab capture started successfully.");
+}
+
+async function stopTabCapture() {
+    console.log("[Copilot] Stopping tab audio capture...");
+
+    // 1. Tell offscreen to stop recording
+    try {
+        await chrome.runtime.sendMessage({
+            target: "offscreen",
+            action: "stop_offscreen_capture"
+        });
+    } catch (e) {
+        console.warn("[Copilot] Could not reach offscreen to stop:", e);
+    }
+
+    // 2. Wait briefly for cleanup
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // 3. Close the offscreen document
+    if (offscreenCreated) {
+        try {
+            await chrome.offscreen.closeDocument();
+            offscreenCreated = false;
+            console.log("[Copilot] Offscreen document closed.");
+        } catch (e) {
+            console.warn("[Copilot] Error closing offscreen:", e);
+            offscreenCreated = false;
+        }
+    }
+
+    console.log("[Copilot] Tab capture stopped.");
+}
+
+// ====================================================================
+//  Session Management
+// ====================================================================
 
 async function startSession(candidateId) {
     console.log(`[Copilot] Starting session for candidate ${candidateId}`);
@@ -175,7 +234,6 @@ async function startSession(candidateId) {
         const data = await response.json();
         currentSessionId = data.id;
 
-        // Init WebSocket
         connectWebSocket();
         return data;
     } catch (e) {
@@ -186,6 +244,10 @@ async function startSession(candidateId) {
 
 async function endSession() {
     if (!currentSessionId) return;
+    
+    // Stop tab capture if running
+    await stopTabCapture().catch(() => {});
+
     try {
         await fetch(`${API_BASE_URL}/interviews/${currentSessionId}/end`, { method: 'POST' });
         currentSessionId = null;
@@ -196,6 +258,10 @@ async function endSession() {
         console.error("Error ending session", e);
     }
 }
+
+// ====================================================================
+//  Interview WebSocket (receives insights from backend pipeline)
+// ====================================================================
 
 function connectWebSocket() {
     if (!currentSessionId || isConnecting) return;
@@ -212,7 +278,6 @@ function connectWebSocket() {
         reconnectAttempts = 0;
         notifyPopup({ type: "ws_status", connected: true });
 
-        // Flush any queued text data
         while (textQueue.length > 0) {
             let text = textQueue.shift();
             socket.send(text);
@@ -222,7 +287,7 @@ function connectWebSocket() {
     socket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            notifyPopup(data); // Forward insights/heartbeats to UI
+            notifyPopup(data);
         } catch (e) {
             console.error("Cannot parse WS message:", event.data);
         }
@@ -236,7 +301,6 @@ function connectWebSocket() {
         if (currentSessionId && event.code !== 1000) {
             handleReconnect();
         } else {
-            // Clean close or session ended intentionally
             socket = null;
         }
     };
@@ -248,12 +312,11 @@ function connectWebSocket() {
 }
 
 function handleReconnect() {
-    // Prevent overlapping reconnect timers
     if (isConnecting) return;
 
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000); // Exponential backoff max 10s
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
         console.log(`[Copilot] Reconnecting in ${delay}ms... (Attempt ${reconnectAttempts})`);
         setTimeout(connectWebSocket, delay);
     } else {
@@ -261,6 +324,10 @@ function handleReconnect() {
         notifyPopup({ type: "ws_status", connected: false, error: "Connection lost." });
     }
 }
+
+// ====================================================================
+//  Utilities
+// ====================================================================
 
 function notifyPopup(data) {
     chrome.runtime.sendMessage(data).catch(() => {

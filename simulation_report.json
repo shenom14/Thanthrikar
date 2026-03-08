@@ -1,0 +1,115 @@
+{
+  "timestamp": "2026-03-08T08:56:20.242180",
+  "candidate": "Arun (Simulated)",
+  "session_id": 23,
+  "total_segments": 5,
+  "total_processing_seconds": 23.91,
+  "technologies_detected": [
+    "machine learning",
+    "kubernetes",
+    "fastapi",
+    "python",
+    "spark",
+    "kafka",
+    "gpu acceleration",
+    "gpu",
+    "collaborative filtering",
+    "matrix factorization"
+  ],
+  "total_insights": 5,
+  "total_follow_ups": 4,
+  "total_errors": 0,
+  "db_insights_count": 5,
+  "llm_enabled": true,
+  "segments": [
+    {
+      "id": 1,
+      "text": "Hi, my name is Arun. I recently graduated in Computer Science. My main interests are machine learning and backend systems. Recently I built a distributed machine learning pipeline using Kubernetes.",
+      "technologies": [
+        "machine learning",
+        "kubernetes"
+      ],
+      "elapsed_seconds": 7.77,
+      "insight_count": 1,
+      "messages": [
+        {
+          "type": "insight",
+          "message": "Agent failed to process verification.",
+          "follow_up": "Can you walk us through the specific technologies and tools you used to build this distributed machine learning pipeline, and how you handled any challenges that arose during the process?"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": 2,
+      "text": "The pipeline had three components. Data ingestion using Python and Kafka. Distributed training using Spark. Deployment using FastAPI.",
+      "technologies": [
+        "fastapi",
+        "python",
+        "spark",
+        "kafka"
+      ],
+      "elapsed_seconds": 2.83,
+      "insight_count": 1,
+      "messages": [
+        {
+          "type": "insight",
+          "message": "Agent failed to process verification.",
+          "follow_up": "Can you elaborate on why you chose to use Python for data ingestion, and what specific libraries or frameworks were used in the Kafka pipeline?"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": 3,
+      "text": "I optimized the model training using GPU acceleration which reduced training time by 40 percent.",
+      "technologies": [
+        "gpu acceleration",
+        "gpu"
+      ],
+      "elapsed_seconds": 2.96,
+      "insight_count": 1,
+      "messages": [
+        {
+          "type": "insight",
+          "message": "Agent failed to process verification.",
+          "follow_up": "Can you walk us through the specific GPU model and configuration you used for training, and how you measured the 40% reduction in training time?"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": 4,
+      "text": "I also built a recommendation system using collaborative filtering and matrix factorization.",
+      "technologies": [
+        "collaborative filtering",
+        "matrix factorization"
+      ],
+      "elapsed_seconds": 3.57,
+      "insight_count": 1,
+      "messages": [
+        {
+          "type": "insight",
+          "message": "Agent failed to process verification.",
+          "follow_up": null
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": 5,
+      "text": "That summarizes my projects.",
+      "technologies": [],
+      "elapsed_seconds": 6.79,
+      "insight_count": 1,
+      "messages": [
+        {
+          "type": "insight",
+          "message": "No relevant resume evidence found, claim cannot be verified.",
+          "follow_up": "Can you tell us more about the projects you've worked on and what specific accomplishments you're most proud of? We'd love to hear more about your experience and how it relates to the role we're discussing today."
+        }
+      ],
+      "error": null
+    }
+  ]
+}
