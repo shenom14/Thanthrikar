@@ -30,20 +30,19 @@ const API_BASE = "http://127.0.0.1:8002";
 document.addEventListener("DOMContentLoaded", () => {
 
     // ============================================================
-    //  TOP-LEVEL MODE TABS (Prep vs Live)
+    //  TOP-LEVEL MODE TABS (Prep vs Live vs Candidate)
     // ============================================================
-    document.getElementById("app-mode-prep").addEventListener("click", () => {
-        document.getElementById("app-mode-prep").classList.add("active");
-        document.getElementById("app-mode-live").classList.remove("active");
-        document.getElementById("app-view-prep").classList.add("active");
-        document.getElementById("app-view-live").classList.remove("active");
-    });
-    document.getElementById("app-mode-live").addEventListener("click", () => {
-        document.getElementById("app-mode-live").classList.add("active");
-        document.getElementById("app-mode-prep").classList.remove("active");
-        document.getElementById("app-view-live").classList.add("active");
-        document.getElementById("app-view-prep").classList.remove("active");
-    });
+    function switchTab(modeId, viewId) {
+        document.querySelectorAll('.mode-tab').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.app-mode-view').forEach(el => el.classList.remove('active'));
+        document.getElementById(modeId).classList.add('active');
+        document.getElementById(viewId).classList.add('active');
+    }
+
+    document.getElementById("app-mode-prep").addEventListener("click", () => switchTab("app-mode-prep", "app-view-prep"));
+    document.getElementById("app-mode-live").addEventListener("click", () => switchTab("app-mode-live", "app-view-live"));
+    const candTab = document.getElementById("app-mode-candidate");
+    if (candTab) candTab.addEventListener("click", () => switchTab("app-mode-candidate", "app-view-candidate"));
 
     // ============================================================
     //  PREP MODE — JD-DRIVEN MULTI-STEP WIZARD
@@ -720,43 +719,31 @@ document.addEventListener("DOMContentLoaded", () => {
         
         if (isIntelligenceActive) {
             // Stop logic
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                if (tabs[0]) {
-                    chrome.tabs.sendMessage(tabs[0].id, { action: "stop_audio_capture" }, (res) => {
-                        isIntelligenceActive = false;
-                        btn.innerHTML = "&#127908; Start Audio Transcription";
-                        btn.classList.replace("btn-danger", "btn-primary");
-                        statusEl.textContent = "Audio capture stopped.";
-                    });
-                }
+            chrome.runtime.sendMessage({ action: "stop_tab_capture" }, (res) => {
+                isIntelligenceActive = false;
+                btn.innerHTML = "&#127908; Start Audio Transcription";
+                btn.classList.replace("btn-danger", "btn-primary");
+                statusEl.textContent = "Audio capture stopped.";
             });
             return;
         }
         
         // Start logic
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (!tabs || tabs.length === 0) {
-                statusEl.textContent = "Error: No active tab found.";
-                return;
+        statusEl.textContent = "Requesting tab audio access...";
+        
+        // Send start command to background script
+        chrome.runtime.sendMessage({ action: "start_tab_capture" }, (response) => {
+            if (chrome.runtime.lastError) {
+                statusEl.textContent = "Error: Please reload extension.";
+                console.error("Background script error", chrome.runtime.lastError);
+            } else if (response && response.success) {
+                isIntelligenceActive = true;
+                btn.innerHTML = "&#10060; Stop Audio Transcription";
+                btn.classList.replace("btn-primary", "btn-danger");
+                statusEl.textContent = "Streaming tab audio to Whisper engine...";
+            } else if (response && response.error) {
+                statusEl.textContent = "Error: " + response.error;
             }
-            
-            const activeTab = tabs[0];
-            statusEl.textContent = "Requesting microphone access...";
-            
-            // Send start command
-            chrome.tabs.sendMessage(activeTab.id, { action: "start_audio_capture" }, (response) => {
-                if (chrome.runtime.lastError) {
-                    statusEl.textContent = "Error: Please refresh the page. Extension not loaded.";
-                    console.error("Content script not found", chrome.runtime.lastError);
-                } else if (response && response.success) {
-                    isIntelligenceActive = true;
-                    btn.innerHTML = "&#10060; Stop Audio Transcription";
-                    btn.classList.replace("btn-primary", "btn-danger");
-                    statusEl.textContent = "Streaming audio to Whisper engine...";
-                } else if (response && response.error) {
-                    statusEl.textContent = "Error: " + response.error;
-                }
-            });
         });
     });
 
@@ -791,5 +778,86 @@ document.addEventListener("DOMContentLoaded", () => {
         const dot = document.getElementById("ws-status");
         if (connected) { dot.classList.add("active"); dot.title = "Connected"; }
         else { dot.classList.remove("active"); dot.title = "Disconnected"; }
+    }
+
+    // ============================================================
+    //  CANDIDATE MODE
+    // ============================================================
+    let candidateSocket = null;
+    let candidateLastSentIndex = 0;
+
+    const candConnectBtn = document.getElementById("candidate-connect-btn");
+    if (candConnectBtn) {
+        candConnectBtn.addEventListener("click", () => {
+            const sessionId = document.getElementById("candidate-session-input").value.trim();
+            if (!sessionId) return alert("Please enter a Session ID");
+            
+            candConnectBtn.disabled = true;
+            candConnectBtn.textContent = "Connecting...";
+
+            candidateSocket = new WebSocket(`ws://127.0.0.1:8002/ws/interviewStream/${sessionId}`);
+            
+            candidateSocket.onopen = () => {
+                candConnectBtn.disabled = false;
+                candConnectBtn.textContent = "Connect";
+                document.getElementById("candidate-setup-view").style.display = "none";
+                document.getElementById("candidate-active-view").style.display = "block";
+                document.getElementById("candidate-session-display").textContent = sessionId;
+                updateWsDot(true);
+                candidateLastSentIndex = 0;
+                document.getElementById("candidate-transcript-input").value = "";
+                document.getElementById("candidate-sent-log").innerHTML = "";
+            };
+
+            candidateSocket.onerror = (e) => {
+                alert("Failed to connect to session.");
+                candConnectBtn.disabled = false;
+                candConnectBtn.textContent = "Connect";
+                console.error("Candidate WS error:", e);
+            };
+
+            candidateSocket.onclose = () => {
+                document.getElementById("candidate-setup-view").style.display = "block";
+                document.getElementById("candidate-active-view").style.display = "none";
+                updateWsDot(false);
+                candidateSocket = null;
+            };
+        });
+    }
+
+    const candDisconnectBtn = document.getElementById("candidate-disconnect-btn");
+    if (candDisconnectBtn) {
+        candDisconnectBtn.addEventListener("click", () => {
+            if (candidateSocket) {
+                candidateSocket.close(1000, "Disconnected by candidate");
+            }
+        });
+    }
+
+    const candInput = document.getElementById("candidate-transcript-input");
+    if (candInput) {
+        candInput.addEventListener("input", (e) => {
+            if (!candidateSocket || candidateSocket.readyState !== WebSocket.OPEN) return;
+            
+            const text = e.target.value;
+            const newText = text.substring(candidateLastSentIndex);
+            
+            // Match sentences ending in . ! or ? optionally followed by whitespace
+            const sentenceMatch = newText.match(/.*?[.!?](?=\s|$)/s);
+            
+            if (sentenceMatch) {
+                const sentence = sentenceMatch[0].trim();
+                if (sentence.length > 0) {
+                    // Send text to backend via WebSocket - api.py handles plain text sending correctly
+                    candidateSocket.send(sentence);
+                    candidateLastSentIndex += sentenceMatch[0].length;
+                    
+                    // Keep UI updated
+                    const logEl = document.getElementById("candidate-sent-log");
+                    logEl.innerHTML += `<div>Sent: "${sentence}"</div>`;
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+            }
+        });
     }
 });

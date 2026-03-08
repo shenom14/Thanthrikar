@@ -4,6 +4,8 @@ import threading
 import numpy as np
 from faster_whisper import WhisperModel
 from pydub import AudioSegment
+import imageio_ffmpeg
+AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 from config.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -32,8 +34,20 @@ class AudioTranscriptionService:
             samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32)
             samples = samples / 32768.0 # Normalize 16-bit PCM to [-1.0, 1.0]
             
+            # Keep only the last 30 seconds to prevent endless hallucination loops on long audio
+            max_samples = 16000 * 30
+            if len(samples) > max_samples:
+                samples = samples[-max_samples:]
+            
             # Transcribe the accumulated audio
-            segments, info = self.model.transcribe(samples, beam_size=1, word_timestamps=False)
+            segments, info = self.model.transcribe(
+                samples, 
+                beam_size=1, 
+                word_timestamps=False,
+                condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+                log_prob_threshold=-1.0
+            )
             
             text = " ".join([segment.text for segment in segments]).strip()
             return text

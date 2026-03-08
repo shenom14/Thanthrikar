@@ -26,7 +26,11 @@ async def websocket_enpoint(websocket: WebSocket):
             # The frontend can send text (metadata/commands) or bytes (audio)
             message = await websocket.receive()
             
-            if "bytes" in message:
+            if message["type"] == "websocket.disconnect":
+                logger.info(f"Client disconnected from audio stream with code {message.get('code')}")
+                break
+            
+            if message.get("bytes") is not None:
                 audio_chunk = message["bytes"]
                 audio_buffer.extend(audio_chunk)
                 
@@ -35,10 +39,18 @@ async def websocket_enpoint(websocket: WebSocket):
                     text = await asyncio.to_thread(whisper_service.transcribe_audio_buffer, bytes(audio_buffer))
                     
                     if text and text != last_transcribed_text:
-                        # Find the new part by stripping the old part if it's a prefix
+                        import difflib
+                        old_words = last_transcribed_text.split()
+                        new_words = text.split()
+                        
+                        s = difflib.SequenceMatcher(None, old_words, new_words)
+                        match = s.find_longest_match(0, len(old_words), 0, len(new_words))
+                        
                         new_part = text
-                        if text.startswith(last_transcribed_text):
-                            new_part = text[len(last_transcribed_text):].strip()
+                        if match.size > 0:
+                            # Only take the words after the longest matching block
+                            novel_words = new_words[match.b + match.size:]
+                            new_part = " ".join(novel_words).strip()
                         
                         if new_part:
                             logger.info(f"[Whisper] {new_part}")
@@ -49,7 +61,7 @@ async def websocket_enpoint(websocket: WebSocket):
                             
                             # TODO: Send completed sentences into LangChain for claim extraction
                 
-            elif "text" in message:
+            elif message.get("text") is not None:
                 data = json.loads(message["text"])
                 if data.get("action") == "stop":
                     logger.info("Client requested stop streaming.")

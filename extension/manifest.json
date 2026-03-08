@@ -24,7 +24,9 @@
     "permissions": [
         "activeTab",
         "scripting",
-        "storage"
+        "storage",
+        "tabCapture",
+        "offscreen"
     ],
     "host_permissions": [
         "http://localhost:8002/*",

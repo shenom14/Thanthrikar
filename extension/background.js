@@ -94,47 +94,69 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
     }
 
-    if (request.action === "start_audio_socket") {
-        if (!audioSocket || audioSocket.readyState !== WebSocket.OPEN) {
-            audioSocket = new WebSocket(`${WS_BASE_URL}/audio/stream`);
-            audioSocket.binaryType = "arraybuffer";
+    if (request.action === "start_tab_capture") {
+        chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+            if (!tabs || tabs.length === 0) {
+                sendResponse({ success: false, error: "No active tab found" });
+                return;
+            }
+            const activeTab = tabs[0];
             
-            let sentenceBuffer = ""; // Stores partial transcript
-            
-            audioSocket.onopen = () => console.log("[Copilot] Audio WebSocket connected.");
-            audioSocket.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === "transcript") {
-                        // 1. Instantly display partial text in UI (Live Transcription)
-                        notifyPopup({ type: "transcript", text: `Microphone: ${data.text}` });
+            try {
+                // Get Tab Audio Stream ID
+                const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: activeTab.id });
+                
+                // Create offscreen document if it doesn't exist
+                await setupOffscreenDocument('offscreen.html');
+                
+                // Open backend Audio WebSocket if not connected
+                if (!audioSocket || audioSocket.readyState !== WebSocket.OPEN) {
+                    audioSocket = new WebSocket(`${WS_BASE_URL}/audio/stream`);
+                    audioSocket.binaryType = "arraybuffer";
+                    
+                    audioSocket.onopen = () => {
+                        console.log("[Copilot] Audio WebSocket connected.");
+                        audioSocket.send(JSON.stringify({ action: "start", sessionId: currentSessionId }));
                         
-                        // 2. Accumulate for AI Processing
-                        // Only send to LangChain when a complete sentence boundary is met
-                        sentenceBuffer += data.text + " ";
-                        if (/[.?!]\s*$/.test(data.text)) {
-                            // Boundary hit! Send complete sentence
-                            let finalizedSentence = sentenceBuffer.trim();
-                            sentenceBuffer = ""; // Reset for next sentence
-                            
-                            if (socket && socket.readyState === WebSocket.OPEN) {
-                                socket.send(finalizedSentence);
-                            } else {
-                                textQueue.push(finalizedSentence);
+                        // Start offscreen recording
+                        chrome.runtime.sendMessage({
+                            target: 'offscreen',
+                            type: 'start_recording',
+                            streamId: streamId
+                        }, (res) => sendResponse(res));
+                    };
+                    
+                    audioSocket.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.type === "transcript") {
+                                notifyPopup({ type: "transcript", text: `Tab Audio: ${data.text}` });
+                                if (socket && socket.readyState === WebSocket.OPEN) {
+                                    socket.send(data.text);
+                                }
                             }
+                        } catch (e) {
+                            console.error("Audio WS parse error:", e);
                         }
-                    }
-                } catch (e) {
-                    console.error(e);
+                    };
+                    audioSocket.onerror = (err) => console.error("[Copilot] Audio WebSocket Error:", err);
+                    audioSocket.onclose = () => {
+                        console.log("[Copilot] Audio WebSocket closed.");
+                        audioSocket = null;
+                    };
+                } else {
+                    // Already open, just start offscreen recording
+                    chrome.runtime.sendMessage({
+                        target: 'offscreen',
+                        type: 'start_recording',
+                        streamId: streamId
+                    }, (res) => sendResponse(res));
                 }
-            };
-            audioSocket.onerror = (err) => console.error("[Copilot] Audio WebSocket Error:", err);
-            audioSocket.onclose = () => {
-                console.log("[Copilot] Audio WebSocket closed.");
-                audioSocket = null;
-            };
-        }
-        sendResponse({ success: true });
+            } catch (err) {
+                console.error("Tab Capture error:", err);
+                sendResponse({ success: false, error: err.message });
+            }
+        });
         return true;
     }
 
@@ -151,15 +173,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
     
-    if (request.action === "stop_audio_socket") {
-        if (audioSocket && audioSocket.readyState === WebSocket.OPEN) {
-            audioSocket.close();
-        }
-        audioSocket = null;
-        sendResponse({ success: true });
+    if (request.action === "stop_tab_capture") {
+        chrome.runtime.sendMessage({ target: 'offscreen', type: 'stop_recording' }, () => {
+            if (audioSocket && audioSocket.readyState === WebSocket.OPEN) {
+                audioSocket.send(JSON.stringify({ action: "stop", sessionId: currentSessionId }));
+                audioSocket.close();
+            }
+            audioSocket = null;
+            sendResponse({ success: true });
+        });
         return true;
     }
 });
+
+async function setupOffscreenDocument(path) {
+    const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+        documentUrls: [chrome.runtime.getURL(path)]
+    });
+
+    if (existingContexts.length > 0) {
+        return;
+    }
+
+    await chrome.offscreen.createDocument({
+        url: path,
+        reasons: ['USER_MEDIA'],
+        justification: 'Recording tab audio for AI Interview Transcription'
+    });
+}
 
 async function startSession(candidateId) {
     console.log(`[Copilot] Starting session for candidate ${candidateId}`);

@@ -489,6 +489,7 @@
     <div class="mode-tabs">
         <div class="mode-tab active" id="app-mode-prep">Prep Mode</div>
         <div class="mode-tab" id="app-mode-live">Live Copilot</div>
+        <div class="mode-tab" id="app-mode-candidate">Candidate Mode</div>
     </div>
 
     <!-- ============================== -->
@@ -689,6 +690,40 @@
                 </div>
 
                 <button class="btn btn-danger" id="end-btn">End Live Session</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================== -->
+    <!--  CANDIDATE MODE                -->
+    <!-- ============================== -->
+    <div id="app-view-candidate" class="app-mode-view">
+        <div class="content">
+            <div id="candidate-setup-view">
+                <div class="card">
+                    <div class="card-title">Join Live Session</div>
+                    <label>Session ID</label>
+                    <input type="text" id="candidate-session-input" placeholder="Enter Session ID..." />
+                    <button class="btn btn-primary" id="candidate-connect-btn">Connect</button>
+                </div>
+            </div>
+
+            <div id="candidate-active-view" style="display:none;">
+                <div class="card" style="font-size:0.82rem;">
+                    <strong>Session:</strong> <span id="candidate-session-display">-</span>
+                </div>
+                <div class="card">
+                    <div class="card-title">Transcription Area</div>
+                    <div style="font-size:0.75rem; color:#64748b; margin-bottom:10px;">
+                        Click inside the box below and press <strong>Win + H</strong> to start speech typing.
+                    </div>
+                    <textarea id="candidate-transcript-input" rows="6" placeholder="Start speaking..." style="width: 100%; padding: 10px; background: #0d1526; border: 1px solid #1e3a5f; color: #e2e8f0; border-radius: 6px; resize: none;"></textarea>
+                </div>
+                <button class="btn btn-danger" id="candidate-disconnect-btn">Disconnect</button>
+                <div class="card" style="margin-top: 10px;">
+                    <div class="card-title">Sent to AI:</div>
+                    <div id="candidate-sent-log" style="font-size: 0.8rem; color: #94a3b8; max-height: 100px; overflow-y: auto;"></div>
+                </div>
             </div>
         </div>
     </div>

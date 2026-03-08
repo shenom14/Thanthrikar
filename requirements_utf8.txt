@@ -10,4 +10,4 @@ sentence-transformers
 chromadb
 openai-whisper
 pdfplumber
-vosk
+groq
