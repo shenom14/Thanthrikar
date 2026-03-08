@@ -137,12 +137,21 @@ class StreamingPipeline:
             )
             return ws_messages
 
-        # Full LLM-backed path.
-        try:
-            tasks = await self.planner.analyze_transcript(transcript_chunk)
-        except Exception as exc:
-            logger.error(f"PlannerAgent failed: {exc}")
-            return []
+        # Smart Keyword Trigger for Low Latency
+        technical_keywords = {"system", "architecture", "pipeline", "distributed", "model", "scaling", "database", "api", "aws", "cloud", "backend", "frontend", "server", "framework", "microservice", "infrastructure"}
+        lower_chunk = transcript_chunk.lower()
+        has_keywords = any(kw in lower_chunk.split() for kw in technical_keywords)
+
+        tasks = []
+        if has_keywords:
+            logger.info(f"⚡ Smart Keyword Trigger matched! Bypassing Planner LLM for extreme low-latency tracking of claim: '{transcript_chunk}'")
+            tasks = [{"task": "verify_claim", "claim": transcript_chunk}]
+        else:
+            try:
+                tasks = await self.planner.analyze_transcript(transcript_chunk)
+            except Exception as exc:
+                logger.error(f"PlannerAgent failed: {exc}")
+                return []
 
         if not tasks:
             return []

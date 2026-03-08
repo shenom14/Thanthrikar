@@ -15,7 +15,6 @@ from config.logger import setup_logger
 # Database and Routes
 from backend.database import engine, Base, SessionLocal
 from backend.routes import api_router
-from backend.services.transcriber import StreamingTranscriber
 from services.streaming_pipeline import StreamingPipeline
 
 logger = setup_logger(__name__)
@@ -44,9 +43,10 @@ app.add_middleware(
 )
 
 # Mount all unified REST routes
-from backend.routers import jd
+from backend.routers import jd, audio
 app.include_router(api_router)
 app.include_router(jd.router)
+app.include_router(audio.router)
 
 
 # --- Legacy Question Generation Endpoints (Prep Mode) ---
@@ -92,7 +92,6 @@ async def api_generate_followup(request: FollowUpRequest):
 
 # Singleton services for all WS connections
 streaming_pipeline = StreamingPipeline()
-transcriber_service = StreamingTranscriber()
 
 
 @app.on_event("startup")
@@ -129,65 +128,22 @@ async def interview_stream(websocket: WebSocket, session_id: int):
     logger.info(f"WebSocket client connected for session {session_id}")
 
     db = SessionLocal()
-    
-    # Async buffer to prevent websocket block
-    audio_buffer = bytearray()
-    is_transcribing = False
-
-    async def process_audio_buffer():
-        nonlocal audio_buffer, is_transcribing
-        if not audio_buffer or is_transcribing:
-            return
-            
-        is_transcribing = True
-        try:
-            # Take everything currently in the buffer and clear it
-            chunk_to_process = bytes(audio_buffer)
-            audio_buffer.clear()
-            
-            # Use AsyncGroq directly
-            text_chunk = await transcriber_service.process_chunk(audio_data=chunk_to_process)
-            
-            if text_chunk:
-                logger.debug(f"Processing transcript chunk for session {session_id} length: {len(text_chunk)}")
-                
-                # Emit live transcript to the UI instantly
-                await websocket.send_json({"type": "transcript", "text": text_chunk})
-                
-                messages = await streaming_pipeline.handle_transcript_chunk(
-                    db=db, session_id=session_id, transcript_chunk=text_chunk
-                )
-                for msg in messages:
-                    await websocket.send_json(msg)
-                
-                await websocket.send_json({"type": "heartbeat", "message": "Acknowledged payload."})
-        except Exception as e:
-            logger.error(f"Error in audio processing task: {e}")
-        finally:
-            is_transcribing = False
-            # Check if more data arrived while we were transcribing
-            if audio_buffer:
-                asyncio.create_task(process_audio_buffer())
 
     try:
         while True:
-            # This read is never blocked by Vosk anymore, so we drain the socket instantly
             data_event = await websocket.receive()
             
-            if "bytes" in data_event:
-                audio_buffer.extend(data_event["bytes"])
-                if not is_transcribing:
-                    asyncio.create_task(process_audio_buffer())
-                    
-            elif "text" in data_event:
+            if "text" in data_event:
                 text_chunk = data_event["text"]
                 if text_chunk:
-                    logger.debug(f"Processing text chunk for session {session_id} length: {len(text_chunk)}")
+                    logger.debug(f"Processing transcript text for session {session_id} length: {len(text_chunk)}")
+                    
                     messages = await streaming_pipeline.handle_transcript_chunk(
                         db=db, session_id=session_id, transcript_chunk=text_chunk
                     )
                     for msg in messages:
                         await websocket.send_json(msg)
+                    
                     await websocket.send_json({"type": "heartbeat", "message": "Acknowledged payload."})
 
     except Exception as e:
@@ -206,4 +162,4 @@ if __name__ == "__main__":
     logger.info(
         f"Starting uvicorn server for {settings.APP_NAME} in {settings.ENVIRONMENT} mode."
     )
-    uvicorn.run("backend.api:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("backend.api:app", host="0.0.0.0", port=8002, reload=True)

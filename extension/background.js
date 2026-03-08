@@ -8,15 +8,16 @@
  * - Push real-time insights to popup.html.
  */
 
-const API_BASE_URL = "http://127.0.0.1:8001";
-const WS_BASE_URL = "ws://127.0.0.1:8001";
+const API_BASE_URL = "http://127.0.0.1:8002";
+const WS_BASE_URL = "ws://127.0.0.1:8002";
 
 let socket = null;
 let currentSessionId = null;
 let isConnecting = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 15;
-let audioQueue = [];
+let textQueue = [];
+let audioSocket = null;
 
 // Listen for messages from popup or content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -69,8 +70,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    if (request.action === "audio_data") {
-        sendAudioToWebSocket(request.data, request.isAudio !== false);
+    if (request.action === "meet_transcript") {
+        const text = request.payload.text;
+        const speaker = request.payload.speaker || "Candidate";
+        
+        // 1) Immediately relay transcript to Popup UI so it shows up in the Live Transcript box
+        notifyPopup({ type: "transcript", text: `${speaker}: ${text}` });
+        
+        // 2) Send to backend over WebSocket for AI analysis
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(text);
+        } else {
+            textQueue.push(text);
+        }
+        return true;
     }
 
     if (request.action === "get_status") {
@@ -79,6 +92,72 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sessionId: currentSessionId,
             socketReady: socket && socket.readyState === WebSocket.OPEN
         });
+    }
+
+    if (request.action === "start_audio_socket") {
+        if (!audioSocket || audioSocket.readyState !== WebSocket.OPEN) {
+            audioSocket = new WebSocket(`${WS_BASE_URL}/audio/stream`);
+            audioSocket.binaryType = "arraybuffer";
+            
+            let sentenceBuffer = ""; // Stores partial transcript
+            
+            audioSocket.onopen = () => console.log("[Copilot] Audio WebSocket connected.");
+            audioSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "transcript") {
+                        // 1. Instantly display partial text in UI (Live Transcription)
+                        notifyPopup({ type: "transcript", text: `Microphone: ${data.text}` });
+                        
+                        // 2. Accumulate for AI Processing
+                        // Only send to LangChain when a complete sentence boundary is met
+                        sentenceBuffer += data.text + " ";
+                        if (/[.?!]\s*$/.test(data.text)) {
+                            // Boundary hit! Send complete sentence
+                            let finalizedSentence = sentenceBuffer.trim();
+                            sentenceBuffer = ""; // Reset for next sentence
+                            
+                            if (socket && socket.readyState === WebSocket.OPEN) {
+                                socket.send(finalizedSentence);
+                            } else {
+                                textQueue.push(finalizedSentence);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            };
+            audioSocket.onerror = (err) => console.error("[Copilot] Audio WebSocket Error:", err);
+            audioSocket.onclose = () => {
+                console.log("[Copilot] Audio WebSocket closed.");
+                audioSocket = null;
+            };
+        }
+        sendResponse({ success: true });
+        return true;
+    }
+
+    if (request.action === "audio_chunk") {
+        if (audioSocket && audioSocket.readyState === WebSocket.OPEN) {
+            const binaryString = atob(request.data);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            audioSocket.send(bytes.buffer);
+        }
+        return true;
+    }
+    
+    if (request.action === "stop_audio_socket") {
+        if (audioSocket && audioSocket.readyState === WebSocket.OPEN) {
+            audioSocket.close();
+        }
+        audioSocket = null;
+        sendResponse({ success: true });
+        return true;
     }
 });
 
@@ -133,10 +212,10 @@ function connectWebSocket() {
         reconnectAttempts = 0;
         notifyPopup({ type: "ws_status", connected: true });
 
-        // Flush any queued audio data
-        while (audioQueue.length > 0) {
-            let queued = audioQueue.shift();
-            sendRawToSocket(queued.data, queued.isAudio);
+        // Flush any queued text data
+        while (textQueue.length > 0) {
+            let text = textQueue.shift();
+            socket.send(text);
         }
     };
 
@@ -180,49 +259,6 @@ function handleReconnect() {
     } else {
         console.warn("[Copilot] Max explicit reconnect attempts reached. Stream offline.");
         notifyPopup({ type: "ws_status", connected: false, error: "Connection lost." });
-    }
-}
-
-/**
- * Converts an audio data payload to an ArrayBuffer and sends it over the WebSocket.
- * 
- * audio_capture.js sends compressed webm audio as a Base64 string.
- * We decode the Base64 string into an ArrayBuffer and send it as a binary WebSocket frame.
- * 
- * Plain string data (e.g. from the manual claim input) is sent as a text frame.
- */
-function sendAudioToWebSocket(data, isAudio = true) {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        sendRawToSocket(data, isAudio);
-    } else {
-        // Queue data if the connection is dropped to prevent data loss
-        audioQueue.push({ data, isAudio });
-    }
-}
-
-function base64ToArrayBuffer(base64) {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
-
-function sendRawToSocket(data, isAudio = true) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-
-    if (isAudio && typeof data === "string") {
-        try {
-            // Compressed webm audio blob as base64 string
-            const buffer = base64ToArrayBuffer(data);
-            socket.send(buffer);
-        } catch (e) {
-            console.error("Failed to decode base64 audio", e);
-        }
-    } else if (typeof data === "string") {
-        // Text data (manual claims)
-        socket.send(data);
     }
 }
 

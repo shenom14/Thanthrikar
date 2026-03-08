@@ -25,7 +25,7 @@ function parseLinkedInUrl(input) {
 }
 
 
-const API_BASE = "http://127.0.0.1:8001";
+const API_BASE = "http://127.0.0.1:8002";
 
 document.addEventListener("DOMContentLoaded", () => {
 
@@ -674,7 +674,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // ============================================================
     //  LIVE COPILOT MODE
     // ============================================================
-    let isMicCapturing = false;
 
     chrome.runtime.sendMessage({ action: "get_status" }, (res) => {
         if (res && res.isActive) {
@@ -704,7 +703,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     document.getElementById("end-btn").addEventListener("click", () => {
-        stopAudioCapture();
         chrome.runtime.sendMessage({ action: "end_session" }, () => {
             document.getElementById("setup-view").style.display = "block";
             document.getElementById("active-view").style.display = "none";
@@ -714,36 +712,62 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    document.getElementById("capture-mic-btn").addEventListener("click", () => {
-        if (isMicCapturing) { stopAudioCapture(); return; }
-        chrome.tabs.create({
-            url: "chrome-extension://" + chrome.runtime.id + "/audio_capture.html",
-            active: false
-        }, () => {
-            isMicCapturing = true;
-            document.getElementById("capture-mic-btn").textContent = "Stop Mic Capture";
-            document.getElementById("mic-status").textContent = "Microphone is live — capturing audio...";
+    let isIntelligenceActive = false;
+
+    document.getElementById("start-intelligence-btn").addEventListener("click", async () => {
+        const btn = document.getElementById("start-intelligence-btn");
+        const statusEl = document.getElementById("meet-status");
+        
+        if (isIntelligenceActive) {
+            // Stop logic
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (tabs[0]) {
+                    chrome.tabs.sendMessage(tabs[0].id, { action: "stop_audio_capture" }, (res) => {
+                        isIntelligenceActive = false;
+                        btn.innerHTML = "&#127908; Start Audio Transcription";
+                        btn.classList.replace("btn-danger", "btn-primary");
+                        statusEl.textContent = "Audio capture stopped.";
+                    });
+                }
+            });
+            return;
+        }
+        
+        // Start logic
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (!tabs || tabs.length === 0) {
+                statusEl.textContent = "Error: No active tab found.";
+                return;
+            }
+            
+            const activeTab = tabs[0];
+            statusEl.textContent = "Requesting microphone access...";
+            
+            // Send start command
+            chrome.tabs.sendMessage(activeTab.id, { action: "start_audio_capture" }, (response) => {
+                if (chrome.runtime.lastError) {
+                    statusEl.textContent = "Error: Please refresh the page. Extension not loaded.";
+                    console.error("Content script not found", chrome.runtime.lastError);
+                } else if (response && response.success) {
+                    isIntelligenceActive = true;
+                    btn.innerHTML = "&#10060; Stop Audio Transcription";
+                    btn.classList.replace("btn-primary", "btn-danger");
+                    statusEl.textContent = "Streaming audio to Whisper engine...";
+                } else if (response && response.error) {
+                    statusEl.textContent = "Error: " + response.error;
+                }
+            });
         });
     });
 
-    function stopAudioCapture() {
-        chrome.tabs.query({ url: "chrome-extension://" + chrome.runtime.id + "/audio_capture.html" }, (tabs) => {
-            tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, { action: "stop_capture" }).catch(() => { });
-                setTimeout(() => chrome.tabs.remove(tab.id), 200);
-            });
-        });
-        isMicCapturing = false;
-        document.getElementById("capture-mic-btn").textContent = "Capture Mic Audio";
-        document.getElementById("mic-status").textContent = "Stopped.";
-    }
-
-    document.getElementById("send-claim-btn").addEventListener("click", () => {
-        const claimText = document.getElementById("manual-claim-input").value.trim();
-        if (!claimText) return alert("Please enter a claim to test");
-        chrome.runtime.sendMessage({ action: "audio_data", data: claimText, isAudio: false });
-        document.getElementById("ai-insights").textContent = "Sent: " + claimText + "\nWaiting for backend...";
-        document.getElementById("manual-claim-input").value = "";
+    // Cleanup when ending entire session
+    const originalEndClick = document.getElementById("end-btn").onclick;
+    document.getElementById("end-btn").addEventListener("click", () => {
+        if (isIntelligenceActive) {
+            document.getElementById("start-intelligence-btn").click(); // toggle off
+        }
+        document.getElementById("live-transcript").innerHTML = "<em>Start speaking...</em>";
+        // Call the rest of the end logic (the existing event listener covers the background websocket)
     });
 
     chrome.runtime.onMessage.addListener((request) => {
@@ -760,8 +784,6 @@ document.addEventListener("DOMContentLoaded", () => {
             if (b.textContent.includes("Waiting for backend...")) {
                 b.textContent = b.textContent.replace("Waiting for backend...", "Processed (No actionable claims detected).");
             }
-        } else if (request.type === "mic_status") {
-            document.getElementById("mic-status").textContent = request.message || "";
         }
     });
 

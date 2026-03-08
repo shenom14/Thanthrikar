@@ -1,4 +1,4 @@
-﻿"""
+"""
 Backend FastAPI Endpoint
 
 Exposes the Question Generation Engine as a REST API to be consumed by the Chrome Extension.

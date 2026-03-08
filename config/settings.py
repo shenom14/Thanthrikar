@@ -35,9 +35,11 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore" # Explicitly ignore extra fields to avoid crashing downstream libraries 
+    }
 
 # Instantiate singleton for import across project
 settings = Settings()

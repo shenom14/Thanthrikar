@@ -26,7 +26,7 @@ class ResumeRetriever:
         
         try:
             self.chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-            self.collection = self.chroma_client.get_collection(name=self.collection_name)
+            self.collection = self.chroma_client.get_or_create_collection(name=self.collection_name)
         except Exception as e:
             print(f"Could not connect to ChromaDB or collection '{self.collection_name}' does not exist. Error: {e}")
             self.collection = None

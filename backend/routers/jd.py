@@ -94,15 +94,21 @@ async def api_jd_generate_summary(request: SummaryRequest):
 
 @router.post("/generate-jd")
 async def api_jd_generate(request: JDGenerateRequest):
-    """Step 1: Generate a JD from a role and return parsed skills for the UI to display."""
+    """Step 1: Get a JD from a role and return parsed skills for the UI to display in O(1) time."""
     from agents.job_role_jd_generator import JDGeneratorAgent
     from agents.jd_analyzer import JDAnalyzerAgent
+    import time
+
+    start_time = time.time()
     try:
         jd_gen = JDGeneratorAgent()
         jd_text = await jd_gen.generate_jd_text(request.role)
 
         jd_analyzer = JDAnalyzerAgent()
         jd_result = await jd_analyzer.analyze_jd(jd_text, request.role)
+        
+        elapsed = time.time() - start_time
+        logger.info(f"JD generation time for {request.role}: {elapsed:.2f} seconds")
 
         return {
             "role": jd_result.role,
@@ -117,14 +123,14 @@ async def api_jd_generate(request: JDGenerateRequest):
 
 @router.post("/generate-questions")
 async def api_jd_generate_questions(request: JDQuestionRequest):
-    """Step 2: Build candidate profile and generate weighted questions from JD + candidate data."""
-    from agents.job_role_jd_generator import JDGeneratorAgent
+    """Step 2: Build candidate profile and generate weighted questions from cached JD + candidate data."""
     from agents.candidate_profile_builder import CandidateProfileBuilder
     from agents.weighted_question_generator import WeightedQuestionGenerator
+    import time
+    
+    start_time = time.time()
     try:
-        jd_gen = JDGeneratorAgent()
-        jd_text = await jd_gen.generate_jd_text(request.role)
-
+        # Avoid redundant JD generation/analysis loop inside builder
         builder = CandidateProfileBuilder()
         profile = await builder.build_profile(
             name=request.name,
@@ -133,7 +139,7 @@ async def api_jd_generate_questions(request: JDQuestionRequest):
             resume_text=request.resume_text or "No resume provided.",
             linkedin_url=request.linkedin_url or "",
             github_username=request.github_username or "",
-            jd_text=jd_text
+            jd_text="" # We don't need raw text anymore, analyzer uses role cache
         )
 
         q_gen = WeightedQuestionGenerator()
@@ -162,6 +168,9 @@ async def api_jd_generate_questions(request: JDQuestionRequest):
                     "difficulty": q.difficulty,
                     "recommended_answer": q.recommended_answer or "No answer provided by AI model."
                 })
+
+        elapsed = time.time() - start_time
+        logger.info(f"Question generation time for {request.role}: {elapsed:.2f} seconds")
 
         return {
             "candidate": request.name,

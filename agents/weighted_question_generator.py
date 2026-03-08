@@ -1,119 +1,92 @@
 import logging
-import json
-import requests
+import random
 from typing import Dict, List
 from config.logger import setup_logger
 from backend.schemas_jd import CandidateProfile, QuestionCategory, QuestionMetadata
 
 logger = setup_logger(__name__)
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "llama3.2:latest"
-
-
-def _call_ollama(prompt: str, max_retries: int = 1) -> str:
-    for attempt in range(max_retries + 1):
-        try:
-            resp = requests.post(
-                OLLAMA_URL,
-                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
-                      "options": {"temperature": 0.7, "num_predict": 4096}},
-                timeout=90
-            )
-            resp.raise_for_status()
-            return resp.json().get("response", "").strip()
-        except Exception as e:
-            logger.warning(f"Ollama call failed (attempt {attempt + 1}): {e}")
-    return ""
-
 class WeightedQuestionGenerator:
-    """Generates JD-weighted interview questions using Ollama."""
+    """Generates interview questions instantly using a fast template-based hybrid system instead of a slow full LLM generation."""
+
+    # Predefined question templates logic
+    TEMPLATES = {
+        "technical": [
+            "Given your experience with {skill}, how would you approach optimizing a system built with it?",
+            "Can you describe a challenging bug you faced while working with {skill} and how you resolved it?",
+            "Explain the core principles of {skill} to someone who has never used it before.",
+            "What are the common anti-patterns you try to avoid when developing with {skill}?",
+            "How do you handle dependency management and versioning when working extensively with {skill}?"
+        ],
+        "system_design": [
+            "How would you design a scalable architecture using {skill} to handle 10,000 requests per second?",
+            "If a service relying on {skill} goes down, what failsafe mechanisms would you have in place?",
+            "Walk me through how you would structure the data flow for an application heavily utilizing {skill}.",
+        ],
+        "behavioral": [
+            "Tell me about a time you had to learn a new technology quickly to solve a problem with {skill}.",
+            "How do you resolve technical disagreements within a team, especially regarding {skill} best practices?",
+            "Describe a project where you took the lead on implementing a solution using {skill}.",
+        ],
+        "github": [
+            "I see you have experience with {repo_name}. What was the most complex technical challenge there?",
+            "In your project {repo_name}, what was the rationale behind the architectural choices you made?",
+            "If you were to rewrite {repo_name} today, what would you do differently?"
+        ]
+    }
 
     def _sync_generate(self, profile: CandidateProfile, skill_weights: Dict[str, int],
                        difficulty: str, total_questions: int) -> QuestionCategory:
-        logger.info(f"Generating {total_questions} {difficulty} questions via Ollama for {profile.name}")
+        logger.info(f"Generating {total_questions} {difficulty} questions via Fast Templates for {profile.name}")
 
-        repo_str = ", ".join([r.get("name", "") for r in profile.github_repositories]) or "None"
-        weight_str = ", ".join([f"{s}: {w}%" for s, w in skill_weights.items()])
+        # Extract top skills based on weights provided by UI
+        sorted_skills = sorted(skill_weights.items(), key=lambda x: x[1], reverse=True)
+        top_skills = [s[0] for s in sorted_skills] if sorted_skills else profile.jd_skills
+        if not top_skills:
+            top_skills = ["Software Engineering", "System Design", "Algorithms"]
 
-        prompt = f"""You are an expert technical interviewer. Generate exactly {total_questions} interview questions for the role of {profile.role}.
-        
-Candidate: {profile.name}
-Experience: {profile.experience_years} years
-Difficulty: {difficulty}
-Skill Priorities: {weight_str}
-GitHub Repos: {repo_str}
+        repos = [r.get("name", "your past projects") for r in profile.github_repositories]
+        if not repos:
+            repos = ["your past projects"]
 
-Distribute the {total_questions} questions across these categories:
-- technical_questions
-- system_design_questions  
-- behavioral_questions
-- resume_validation_questions
-- github_project_questions
+        def _build_questions(category_key: str, count: int, use_repos: bool = False) -> List[QuestionMetadata]:
+            questions = []
+            templates = self.TEMPLATES.get(category_key, self.TEMPLATES["technical"])
+            
+            for i in range(count):
+                template = random.choice(templates)
+                skill = random.choice(top_skills)
+                repo = random.choice(repos)
+                
+                if use_repos and "{repo_name}" in template:
+                    q_text = template.replace("{repo_name}", repo)
+                else:
+                    q_text = template.replace("{skill}", skill).replace("{repo_name}", repo)
+                
+                questions.append(QuestionMetadata(
+                    question=q_text,
+                    jd_skill=skill if not use_repos else "GitHub/Projects",
+                    candidate_skill=skill,
+                    difficulty=difficulty,
+                    evaluation_goal=f"Assess {difficulty} knowledge of {skill if not use_repos else repo}",
+                    recommended_answer=f"Candidate should demonstrate practical experience and best practices regarding {skill if not use_repos else repo}."
+                ))
+            return questions
 
-Return a JSON object with these category keys, each mapping to a list of question objects.
-Each question object must have: "question", "jd_skill", "candidate_skill", "difficulty", "evaluation_goal", "recommended_answer".
-The "recommended_answer" should be a high-quality, comprehensive expected answer (3-5 sentences).
-"""
+        # Distribute questions
+        tech_count = max(1, int(total_questions * 0.4))
+        sys_count = max(1, int(total_questions * 0.2))
+        beh_count = max(1, int(total_questions * 0.2))
+        git_count = total_questions - (tech_count + sys_count + beh_count)
+        if git_count < 0: git_count = 0
 
-        try:
-            resp = requests.post(
-                OLLAMA_URL,
-                json={
-                    "model": OLLAMA_MODEL, 
-                    "prompt": prompt, 
-                    "stream": False,
-                    "format": "json",
-                    "options": {"temperature": 0.3, "num_predict": 4096}
-                },
-                timeout=90
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("response", "").strip()
-        except Exception as e:
-            logger.warning(f"Ollama call failed: {e}")
-            return self._fallback_category(difficulty)
-
-        if not raw:
-            return self._fallback_category(difficulty)
-
-        try:
-            start = raw.index("{")
-            end = raw.rindex("}") + 1
-            data = json.loads(raw[start:end])
-
-            def parse_list(lst: list) -> List[QuestionMetadata]:
-                result = []
-                for q in lst:
-                    if isinstance(q, dict) and "question" in q:
-                        result.append(QuestionMetadata(
-                            question=q.get("question", ""),
-                            jd_skill=q.get("jd_skill"),
-                            candidate_skill=q.get("candidate_skill"),
-                            difficulty=q.get("difficulty", difficulty),
-                            evaluation_goal=q.get("evaluation_goal", "Assess candidate knowledge"),
-                            recommended_answer=q.get("recommended_answer", "No answer provided by AI model.")
-                        ))
-                return result
-
-            return QuestionCategory(
-                technical_questions=parse_list(data.get("technical_questions", [])),
-                system_design_questions=parse_list(data.get("system_design_questions", [])),
-                behavioral_questions=parse_list(data.get("behavioral_questions", [])),
-                resume_validation_questions=parse_list(data.get("resume_validation_questions", [])),
-                github_project_questions=parse_list(data.get("github_project_questions", []))
-            )
-        except Exception as e:
-            logger.warning(f"Failed to parse Ollama question JSON: {e}")
-            return self._fallback_category(difficulty)
-
-    def _fallback_category(self, difficulty: str) -> QuestionCategory:
-        fallback = QuestionMetadata(
-            question="Can you describe a challenging problem you solved in your past roles?",
-            difficulty=difficulty,
-            evaluation_goal="Problem solving and resilience"
+        return QuestionCategory(
+            technical_questions=_build_questions("technical", tech_count),
+            system_design_questions=_build_questions("system_design", sys_count),
+            behavioral_questions=_build_questions("behavioral", beh_count),
+            github_project_questions=_build_questions("github", git_count, use_repos=True),
+            resume_validation_questions=_build_questions("technical", 1) # Bonus
         )
-        return QuestionCategory(technical_questions=[fallback])
 
     async def generate_questions(self, profile: CandidateProfile, skill_weights: Dict[str, int],
                                   difficulty: str = "mid", total_questions: int = 15) -> QuestionCategory:

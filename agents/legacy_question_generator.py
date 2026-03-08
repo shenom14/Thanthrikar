@@ -1,4 +1,4 @@
-﻿"""
+"""
 Question Generator Agent
 
 Responsible for synthesizing candidate data from multiple sources (LinkedIn, GitHub, Resume)

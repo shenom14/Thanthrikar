@@ -7,7 +7,7 @@ from config.logger import setup_logger
 logger = setup_logger(__name__)
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "llama3.2:latest" 
+OLLAMA_MODEL = "llama3.2" 
 
 class InterviewSummarizerAgent:
     """Generates an AI summary of an interview based on the recorded log."""
